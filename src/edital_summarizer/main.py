@@ -23,15 +23,19 @@ console = Console()
 
 
 def process_editais(
-    input_path: Path, output_file: Path, summary_types: List[str], verbose: bool = False
+    input_path: Path,
+    output_file: Path,
+    summary_types: List[str],
+    language: str = "pt-br",
+    verbose: bool = False,
 ) -> None:
     """Process bidding documents and generate summaries."""
     if not input_path.exists():
         console.print(f"[red]Error: Input path does not exist: {input_path}[/red]")
         raise typer.Exit(1)
 
-    # Initialize the crew
-    crew = DocumentSummarizerCrew()
+    # Initialize the crew with language
+    crew = DocumentSummarizerCrew(language=language)
 
     # Process all documents
     results = []
@@ -109,6 +113,12 @@ def main(
         "-s",
         help="Comma-separated list of summary types",
     ),
+    language: str = typer.Option(
+        "pt-br",
+        "--language",
+        "-l",
+        help="Language to use (pt-br or en). Default: pt-br",
+    ),
     verbose: bool = typer.Option(
         False,
         "--verbose",
@@ -119,11 +129,18 @@ def main(
     """
     Process bidding documents and generate summaries.
     """
+    # Validate language
+    if language not in ["pt-br", "en"]:
+        console.print(
+            f"[red]Error: Invalid language: {language}. Use 'pt-br' or 'en'.[/red]"
+        )
+        raise typer.Exit(1)
+
     # Split summary types
     summary_types_list = [t.strip() for t in summary_types.split(",")]
 
     # Process documents
-    process_editais(input_path, output, summary_types_list, verbose)
+    process_editais(input_path, output, summary_types_list, language, verbose)
 
 
 if __name__ == "__main__":

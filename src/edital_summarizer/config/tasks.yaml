@@ -17,21 +17,38 @@ reporting_task:
   agent: reporting_analyst
 
 metadata_extraction:
-  description: |
-    Extract the following metadata from the document text:
-    - Title
-    - Organization/Entity
-    - Publication Date
-    - Deadline Date
-    - Object/Subject
-    - Reference Number
-    - Estimated Value
-    - Contact Information
+  description:
+    en: |
+      Extract the following metadata from the document text:
+      - Title
+      - Organization/Entity
+      - Publication Date
+      - Deadline Date
+      - Object/Subject
+      - Reference Number
+      - Estimated Value
+      - Contact Information
 
-    Return the data in JSON format.
+      Return the data in JSON format.
+    pt-br: |
+      Extraia os seguintes metadados do texto do documento:
+      - Título
+      - Organização/Entidade
+      - Data de Publicação
+      - Data Limite
+      - Objeto
+      - Número de Referência
+      - Valor Estimado
+      - Informações de Contato
+
+      Retorne os dados em formato JSON.
 
 executive_summary:
-  description: "Generate a concise executive summary focusing on key points and decisions needed."
+  description:
+    en: "Generate a concise executive summary focusing on key points and decisions needed."
+    pt-br: "Gere um resumo executivo conciso focando nos pontos-chave e decisões necessárias."
 
 technical_summary:
-  description: "Generate a detailed technical summary focusing on specifications and requirements."
+  description:
+    en: "Generate a detailed technical summary focusing on specifications and requirements."
+    pt-br: "Gere um resumo técnico detalhado focando em especificações e requisitos."

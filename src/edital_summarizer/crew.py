@@ -69,19 +69,34 @@ class EditalSummarizer:
 
 
 class DocumentSummarizerCrew:
-    def __init__(self):
+    def __init__(self, language: str = "pt-br"):
         self.config_dir = Path(__file__).parent / "config"
+        self.language = language
         self.agents = self._load_agents()
 
     def _load_agents(self) -> Dict[str, Agent]:
         with open(self.config_dir / "agents.yaml") as f:
             agents_config = yaml.safe_load(f)
 
+        # Process language-specific configurations
+        for name, config in agents_config.items():
+            if isinstance(config["goal"], dict):
+                config["goal"] = config["goal"][self.language]
+            if isinstance(config["backstory"], dict):
+                config["backstory"] = config["backstory"][self.language]
+
         return {name: Agent(**config) for name, config in agents_config.items()}
 
     def _load_tasks(self) -> Dict[str, dict]:
         with open(self.config_dir / "tasks.yaml") as f:
-            return yaml.safe_load(f)
+            tasks_config = yaml.safe_load(f)
+
+        # Process language-specific descriptions
+        for task_name, task_config in tasks_config.items():
+            if isinstance(task_config.get("description"), dict):
+                task_config["description"] = task_config["description"][self.language]
+
+        return tasks_config
 
     def extract_metadata(self, text: str) -> Dict:
         """Extract metadata from document text."""
