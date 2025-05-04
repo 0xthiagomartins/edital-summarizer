@@ -41,7 +41,7 @@ def process_editais(
         console.print(f"[red]Error: Input path does not exist: {input_path}[/red]")
         raise typer.Exit(1)
 
-    # Initialize the crew with language and verbose
+    # Initialize the crew
     crew = DocumentSummarizerCrew(language=language, verbose=verbose)
 
     # Process all documents
@@ -58,7 +58,7 @@ def process_editais(
     ) as progress:
         task = progress.add_task("Processing documents...", total=len(extracted_texts))
 
-        for file_path, text in extracted_texts.items():
+        for file_path, (text, metadata) in extracted_texts.items():
             if verbose:
                 console.print(f"\n[bold blue]Processing: {file_path}[/bold blue]")
                 console.print(f"Text length: {len(text)} characters")
@@ -71,7 +71,23 @@ def process_editais(
                 results.append(
                     {
                         "Origem": str(file_path),
-                        "Metadados": json.dumps(result["metadata"], ensure_ascii=False),
+                        # Adicionar metadados do JSON
+                        "Objeto": metadata.object,
+                        "Data Abertura": metadata.dates.opening,
+                        "Edital": metadata.public_notice,
+                        "Status": metadata.status,
+                        "Órgão": metadata.agency,
+                        "Cidade": metadata.city,
+                        "Número": metadata.bid_number,
+                        "Processo": metadata.process_id,
+                        "Telefone": metadata.phone or "",
+                        "Website": metadata.website or "",
+                        "Observações": metadata.notes,
+                        # Metadados extraídos pela LLM
+                        "Metadados LLM": json.dumps(
+                            result["metadata"], ensure_ascii=False
+                        ),
+                        # Resumos
                         **{
                             (
                                 f"Resumo {t.to_pt().capitalize()}"

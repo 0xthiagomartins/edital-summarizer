@@ -1,9 +1,11 @@
 import os
 import zipfile
 from pathlib import Path
-from typing import List, Dict, Union
+from typing import List, Dict, Union, Tuple
 import PyPDF2
 import io
+import json
+from ..models import BidMetadata
 
 
 class DocumentExtractor:
@@ -59,30 +61,51 @@ class DocumentExtractor:
         return extracted_texts
 
     @staticmethod
-    def process_directory(directory_path: Union[str, Path]) -> Dict[str, str]:
-        """Process a directory and extract text from all supported files."""
-        extracted_texts = {}
-        directory_path = Path(directory_path)
+    def process_directory(directory_path: Path) -> Dict[str, Tuple[str, BidMetadata]]:
+        """
+        Process all documents in a directory.
+        Returns a dictionary with file paths as keys and tuples of (text content, metadata) as values.
+        """
+        results = {}
 
-        for file_path in directory_path.rglob("*"):
-            if file_path.is_file():
-                if file_path.suffix.lower() == ".pdf":
-                    extracted_texts[str(file_path.relative_to(directory_path))] = (
-                        DocumentExtractor.extract_text_from_pdf(file_path)
-                    )
-                elif file_path.suffix.lower() == ".txt":
-                    extracted_texts[str(file_path.relative_to(directory_path))] = (
-                        DocumentExtractor.extract_text_from_txt(file_path)
-                    )
-                elif file_path.suffix.lower() == ".md":
-                    extracted_texts[str(file_path.relative_to(directory_path))] = (
-                        DocumentExtractor.extract_text_from_md(file_path)
-                    )
-                elif file_path.suffix.lower() == ".zip":
-                    zip_texts = DocumentExtractor.process_zip_file(file_path)
-                    for filename, text in zip_texts.items():
-                        extracted_texts[
-                            f"{file_path.relative_to(directory_path)}/{filename}"
-                        ] = text
+        # First, try to load metadata.json
+        metadata_file = directory_path / "metadata.json"
+        if not metadata_file.exists():
+            raise FileNotFoundError(f"metadata.json not found in {directory_path}")
 
-        return extracted_texts
+        try:
+            with open(metadata_file) as f:
+                metadata = BidMetadata.model_validate(json.load(f))
+        except Exception as e:
+            raise ValueError(f"Error parsing metadata.json: {str(e)}")
+
+        # Then process all other files
+        for file_path in directory_path.glob("*"):
+            if file_path.name == "metadata.json":
+                continue
+
+            if file_path.suffix.lower() == ".pdf":
+                text = DocumentExtractor._extract_from_pdf(file_path)
+            elif file_path.suffix.lower() in [".txt", ".md"]:
+                text = DocumentExtractor._extract_from_text(file_path)
+            else:
+                continue
+
+            results[str(file_path.name)] = (text, metadata)
+
+        return results
+
+    @staticmethod
+    def _extract_from_pdf(file_path: Path) -> str:
+        """Extract text from PDF file."""
+        text = ""
+        with open(file_path, "rb") as file:
+            reader = PyPDF2.PdfReader(file)
+            for page in reader.pages:
+                text += page.extract_text() + "\n"
+        return text
+
+    @staticmethod
+    def _extract_from_text(file_path: Path) -> str:
+        """Extract text from text file."""
+        return file_path.read_text()
