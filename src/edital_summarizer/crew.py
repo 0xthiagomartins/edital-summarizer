@@ -13,6 +13,7 @@ from rich.progress import (
     TimeElapsedColumn,
     BarColumn,
 )
+from .types import SummaryType  # Adicione esta importação
 
 # If you want to run a snippet of code before or after the crew starts,
 # you can use the @before_kickoff and @after_kickoff decorators
@@ -151,7 +152,7 @@ class DocumentSummarizerCrew:
                 rprint(f"[red]Error parsing metadata: {str(e)}[/red]")
             return {"error": "Failed to parse metadata"}
 
-    def generate_summary(self, text: str, summary_type: str) -> str:
+    def generate_summary(self, text: str, summary_type: SummaryType) -> str:
         """Generate a summary of the specified type."""
         if self.verbose:
             rprint(f"[yellow]Starting {summary_type} summary generation...[/yellow]")
@@ -159,17 +160,17 @@ class DocumentSummarizerCrew:
         tasks_config = self._load_tasks()
 
         # Truncate text if too long
-        max_length = 12000  # Ajuste este valor conforme necessário
+        max_length = 12000
         if len(text) > max_length:
             half = max_length // 2
             text = text[:half] + "\n...[TEXTO TRUNCADO]...\n" + text[-half:]
             if self.verbose:
                 rprint("[yellow]Text truncated for summary generation[/yellow]")
 
-        if summary_type == "executivo":
+        if summary_type == SummaryType.EXECUTIVE:
             agent = self.agents["executive_summary_agent"]
             task_config = tasks_config["executive_summary"]
-        elif summary_type == "técnico":
+        elif summary_type == SummaryType.TECHNICAL:
             agent = self.agents["technical_summary_agent"]
             task_config = tasks_config["technical_summary"]
         else:
@@ -195,20 +196,22 @@ class DocumentSummarizerCrew:
 
         if self.verbose:
             rprint(
-                f"[green]{summary_type.capitalize()} summary generated successfully[/green]"
+                f"[green]{str(summary_type).capitalize()} summary generated successfully[/green]"
             )
 
         return result
 
-    def process_document(self, text: str, summary_types: List[str] = None) -> Dict:
+    def process_document(
+        self, text: str, summary_types: List[SummaryType] = None
+    ) -> Dict:
         """Process a document and generate all requested summaries."""
         if summary_types is None:
-            summary_types = ["executivo", "técnico"]
+            summary_types = [SummaryType.EXECUTIVE, SummaryType.TECHNICAL]
 
         result = {"metadata": self.extract_metadata(text), "summaries": {}}
 
         for summary_type in summary_types:
-            result["summaries"][summary_type] = self.generate_summary(
+            result["summaries"][str(summary_type)] = self.generate_summary(
                 text, summary_type
             )
 

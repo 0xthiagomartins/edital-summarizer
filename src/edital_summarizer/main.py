@@ -16,6 +16,7 @@ from rich.progress import (
 )
 from .tools.document_extractor import DocumentExtractor
 from .crew import DocumentSummarizerCrew
+from .types import SummaryType  # Adicione esta importação
 
 warnings.filterwarnings("ignore", category=SyntaxWarning, module="pysbd")
 
@@ -31,7 +32,7 @@ console = Console()
 def process_editais(
     input_path: Path,
     output_file: Path,
-    summary_types: List[str],
+    summary_types: List[SummaryType],
     language: str = "pt-br",
     verbose: bool = False,
 ) -> None:
@@ -72,7 +73,11 @@ def process_editais(
                         "Origem": str(file_path),
                         "Metadados": json.dumps(result["metadata"], ensure_ascii=False),
                         **{
-                            f"Resumo {t.capitalize()}": result["summaries"][t]
+                            (
+                                f"Resumo {t.to_pt().capitalize()}"
+                                if language == "pt-br"
+                                else f"{str(t).capitalize()} Summary"
+                            ): result["summaries"][str(t)]
                             for t in summary_types
                         },
                     }
@@ -117,10 +122,10 @@ def main(
         resolve_path=True,
     ),
     summary_types: str = typer.Option(
-        "executivo,técnico",
+        "executive,technical",  # Mudado para inglês
         "--summary-types",
         "-s",
-        help="Comma-separated list of summary types",
+        help="Comma-separated list of summary types (executive, technical, legal)",
     ),
     language: str = typer.Option(
         "pt-br",
@@ -145,8 +150,14 @@ def main(
         )
         raise typer.Exit(1)
 
-    # Split summary types
-    summary_types_list = [t.strip() for t in summary_types.split(",")]
+    # Convert string summary types to enum
+    try:
+        summary_types_list = [
+            SummaryType.from_str(t.strip()) for t in summary_types.split(",")
+        ]
+    except ValueError as e:
+        console.print(f"[red]Error: {str(e)}[/red]")
+        raise typer.Exit(1)
 
     # Process documents
     process_editais(input_path, output, summary_types_list, language, verbose)
