@@ -5,6 +5,14 @@ from typing import List, Dict
 import yaml
 from pathlib import Path
 import json
+from rich import print as rprint
+from rich.progress import (
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    TimeElapsedColumn,
+    BarColumn,
+)
 
 # If you want to run a snippet of code before or after the crew starts,
 # you can use the @before_kickoff and @after_kickoff decorators
@@ -69,9 +77,10 @@ class EditalSummarizer:
 
 
 class DocumentSummarizerCrew:
-    def __init__(self, language: str = "pt-br"):
+    def __init__(self, language: str = "pt-br", verbose: bool = False):
         self.config_dir = Path(__file__).parent / "config"
         self.language = language
+        self.verbose = verbose
         self.agents = self._load_agents()
 
     def _load_agents(self) -> Dict[str, Agent]:
@@ -100,7 +109,19 @@ class DocumentSummarizerCrew:
 
     def extract_metadata(self, text: str) -> Dict:
         """Extract metadata from document text."""
+        if self.verbose:
+            rprint("[yellow]Starting metadata extraction...[/yellow]")
+            rprint(f"[dim]Text length: {len(text)} characters[/dim]")
+
         tasks_config = self._load_tasks()
+
+        # Truncate text if too long (mantendo início e fim do documento)
+        max_length = 8000  # Ajuste este valor conforme necessário
+        if len(text) > max_length:
+            half = max_length // 2
+            text = text[:half] + "\n...[TEXTO TRUNCADO]...\n" + text[-half:]
+            if self.verbose:
+                rprint("[yellow]Text truncated for processing[/yellow]")
 
         task = Task(
             description=tasks_config["metadata_extraction"]["description"],
@@ -108,17 +129,42 @@ class DocumentSummarizerCrew:
             agent=self.agents["metadata_agent"],
         )
 
-        crew = Crew(agents=[self.agents["metadata_agent"]], tasks=[task], verbose=True)
+        crew = Crew(
+            agents=[self.agents["metadata_agent"]],
+            tasks=[task],
+            verbose=True,
+            process=Process.sequential,  # Garantir processamento sequencial
+        )
+
+        if self.verbose:
+            rprint("[green]Starting metadata extraction crew...[/green]")
 
         result = crew.kickoff()
+
         try:
-            return json.loads(result)
-        except json.JSONDecodeError:
+            parsed_result = json.loads(result)
+            if self.verbose:
+                rprint("[green]Metadata extracted successfully[/green]")
+            return parsed_result
+        except json.JSONDecodeError as e:
+            if self.verbose:
+                rprint(f"[red]Error parsing metadata: {str(e)}[/red]")
             return {"error": "Failed to parse metadata"}
 
     def generate_summary(self, text: str, summary_type: str) -> str:
         """Generate a summary of the specified type."""
+        if self.verbose:
+            rprint(f"[yellow]Starting {summary_type} summary generation...[/yellow]")
+
         tasks_config = self._load_tasks()
+
+        # Truncate text if too long
+        max_length = 12000  # Ajuste este valor conforme necessário
+        if len(text) > max_length:
+            half = max_length // 2
+            text = text[:half] + "\n...[TEXTO TRUNCADO]...\n" + text[-half:]
+            if self.verbose:
+                rprint("[yellow]Text truncated for summary generation[/yellow]")
 
         if summary_type == "executivo":
             agent = self.agents["executive_summary_agent"]
@@ -135,9 +181,24 @@ class DocumentSummarizerCrew:
             agent=agent,
         )
 
-        crew = Crew(agents=[agent], tasks=[task], verbose=True)
+        crew = Crew(
+            agents=[agent],
+            tasks=[task],
+            verbose=True,
+            process=Process.sequential,
+        )
 
-        return crew.kickoff()
+        if self.verbose:
+            rprint(f"[green]Starting {summary_type} summary generation crew...[/green]")
+
+        result = crew.kickoff()
+
+        if self.verbose:
+            rprint(
+                f"[green]{summary_type.capitalize()} summary generated successfully[/green]"
+            )
+
+        return result
 
     def process_document(self, text: str, summary_types: List[str] = None) -> Dict:
         """Process a document and generate all requested summaries."""

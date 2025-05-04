@@ -7,7 +7,13 @@ from typing import List
 import json
 import typer
 from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.progress import (
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    TimeElapsedColumn,
+    BarColumn,
+)
 from .tools.document_extractor import DocumentExtractor
 from .crew import DocumentSummarizerCrew
 
@@ -34,8 +40,8 @@ def process_editais(
         console.print(f"[red]Error: Input path does not exist: {input_path}[/red]")
         raise typer.Exit(1)
 
-    # Initialize the crew with language
-    crew = DocumentSummarizerCrew(language=language)
+    # Initialize the crew with language and verbose
+    crew = DocumentSummarizerCrew(language=language, verbose=verbose)
 
     # Process all documents
     results = []
@@ -44,14 +50,17 @@ def process_editais(
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
+        TimeElapsedColumn(),
+        BarColumn(),
         console=console,
-        transient=True,
+        transient=False if verbose else True,
     ) as progress:
         task = progress.add_task("Processing documents...", total=len(extracted_texts))
 
         for file_path, text in extracted_texts.items():
             if verbose:
-                console.print(f"Processing: {file_path}")
+                console.print(f"\n[bold blue]Processing: {file_path}[/bold blue]")
+                console.print(f"Text length: {len(text)} characters")
 
             try:
                 # Process document and generate summaries
@@ -70,12 +79,12 @@ def process_editais(
                 )
 
                 if verbose:
-                    console.print(f"[green]Completed processing: {file_path}[/green]")
+                    console.print(f"[green]✓ Completed processing: {file_path}[/green]")
 
             except Exception as e:
                 console.print(f"[red]Error processing {file_path}: {str(e)}[/red]")
                 if verbose:
-                    raise
+                    console.print_exception()
 
             progress.advance(task)
 
