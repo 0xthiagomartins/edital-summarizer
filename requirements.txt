@@ -1,6 +1,0 @@
-crewai
-PyPDF2
-pandas
-openpyxl
-python-dotenv
-typer[all]

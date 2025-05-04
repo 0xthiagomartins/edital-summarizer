@@ -1,35 +1,42 @@
-import os
+#!/usr/bin/env python
+import sys
+import warnings
 from pathlib import Path
 import pandas as pd
-from typing import List, Optional
+from typing import List
 import json
 import typer
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
-from pipeline.extractor import process_directory
-from pipeline.summarizer import DocumentSummarizer
+from .tools.document_extractor import DocumentExtractor
+from .crew import DocumentSummarizerCrew
+
+warnings.filterwarnings("ignore", category=SyntaxWarning, module="pysbd")
+
+# This main file is intended to be a way for you to run your
+# crew locally, so refrain from adding unnecessary logic into this file.
+# Replace with inputs you want to test with, it will automatically
+# interpolate any tasks and agents information
 
 app = typer.Typer(help="Process bidding documents and generate summaries.")
 console = Console()
 
+
 def process_editais(
-    input_path: Path,
-    output_file: Path,
-    summary_types: List[str],
-    verbose: bool = False
+    input_path: Path, output_file: Path, summary_types: List[str], verbose: bool = False
 ) -> None:
     """Process bidding documents and generate summaries."""
     if not input_path.exists():
         console.print(f"[red]Error: Input path does not exist: {input_path}[/red]")
         raise typer.Exit(1)
 
-    # Initialize the summarizer
-    summarizer = DocumentSummarizer()
+    # Initialize the crew
+    crew = DocumentSummarizerCrew()
 
     # Process all documents
     results = []
-    extracted_texts = process_directory(input_path)
-    
+    extracted_texts = DocumentExtractor.process_directory(input_path)
+
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
@@ -37,37 +44,43 @@ def process_editais(
         transient=True,
     ) as progress:
         task = progress.add_task("Processing documents...", total=len(extracted_texts))
-        
+
         for file_path, text in extracted_texts.items():
             if verbose:
                 console.print(f"Processing: {file_path}")
-                
+
             try:
                 # Process document and generate summaries
-                result = summarizer.process_document(text, summary_types)
-                
+                result = crew.process_document(text, summary_types)
+
                 # Add the result to our list
-                results.append({
-                    "Origem": str(file_path),
-                    "Metadados": json.dumps(result["metadata"], ensure_ascii=False),
-                    **{f"Resumo {t.capitalize()}": result["summaries"][t] for t in summary_types}
-                })
-                
+                results.append(
+                    {
+                        "Origem": str(file_path),
+                        "Metadados": json.dumps(result["metadata"], ensure_ascii=False),
+                        **{
+                            f"Resumo {t.capitalize()}": result["summaries"][t]
+                            for t in summary_types
+                        },
+                    }
+                )
+
                 if verbose:
                     console.print(f"[green]Completed processing: {file_path}[/green]")
-                    
+
             except Exception as e:
                 console.print(f"[red]Error processing {file_path}: {str(e)}[/red]")
                 if verbose:
                     raise
-                
+
             progress.advance(task)
 
     # Create DataFrame and save to Excel
     df = pd.DataFrame(results)
-    df.to_excel(output_file, index=False, engine='openpyxl')
-    
+    df.to_excel(output_file, index=False, engine="openpyxl")
+
     console.print(f"[green]Report saved to: {output_file}[/green]")
+
 
 @app.command()
 def main(
@@ -105,16 +118,13 @@ def main(
 ) -> None:
     """
     Process bidding documents and generate summaries.
-    
-    The application will process all documents in the specified directory (including ZIP files),
-    extract text from all supported file types, use CrewAI agents to analyze the content,
-    generate metadata and summaries, and save the results to an Excel file.
     """
     # Split summary types
-    summary_types_list = [t.strip() for t in summary_types.split(',')]
-    
+    summary_types_list = [t.strip() for t in summary_types.split(",")]
+
     # Process documents
     process_editais(input_path, output, summary_types_list, verbose)
 
-if __name__ == '__main__':
-    app() 
+
+if __name__ == "__main__":
+    app()
