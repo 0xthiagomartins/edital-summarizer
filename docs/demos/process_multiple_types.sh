@@ -2,7 +2,7 @@
 
 # Demo: Process with custom summary types
 python -m edital_summarizer.main \
-  samples/edital-xxx \
+  samples/edital-001 \
   --output custom-report.xlsx \
   --summary-types "executivo,técnico,legal" \
   --verbose 

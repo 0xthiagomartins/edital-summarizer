@@ -104,6 +104,7 @@ class DocumentSummarizerCrew:
 
         task = Task(
             description=tasks_config["metadata_extraction"]["description"],
+            expected_output=tasks_config["metadata_extraction"]["expected_output"],
             agent=self.agents["metadata_agent"],
         )
 
@@ -130,6 +131,7 @@ class DocumentSummarizerCrew:
 
         task = Task(
             description=f"{task_config['description']}\n\nDocument text:\n{text}",
+            expected_output=task_config["expected_output"],
             agent=agent,
         )
 

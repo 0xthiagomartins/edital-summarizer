@@ -42,13 +42,27 @@ metadata_extraction:
       - Informações de Contato
 
       Retorne os dados em formato JSON.
+  expected_output: |
+    A JSON object containing the following fields:
+    {
+      "title": "string",
+      "organization": "string",
+      "publication_date": "string",
+      "deadline_date": "string",
+      "object": "string",
+      "reference_number": "string",
+      "estimated_value": "string",
+      "contact_info": "string"
+    }
 
 executive_summary:
   description:
     en: "Generate a concise executive summary focusing on key points and decisions needed."
     pt-br: "Gere um resumo executivo conciso focando nos pontos-chave e decisões necessárias."
+  expected_output: "A concise executive summary text with the main points and decisions needed."
 
 technical_summary:
   description:
     en: "Generate a detailed technical summary focusing on specifications and requirements."
     pt-br: "Gere um resumo técnico detalhado focando em especificações e requisitos."
+  expected_output: "A detailed technical summary text with specifications and requirements."

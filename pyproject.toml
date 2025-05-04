@@ -2,9 +2,21 @@
 name = "edital_summarizer"
 version = "0.1.0"
 description = "edital-summarizer using crewAI"
-authors = [{ name = "Your Name", email = "you@example.com" }]
+authors = [{ name = "Thiago Martins", email = "thiago.fmartins@outlook.com" }]
 requires-python = ">=3.10,<3.13"
-dependencies = ["crewai[tools]>=0.118.0,<1.0.0"]
+dependencies = [
+    "crewai[tools]>=0.118.0,<1.0.0",
+    "PyPDF2",
+    "pandas",
+    "openpyxl",
+    "python-dotenv",
+    "typer[all]",
+    "pyyaml",
+    "rich",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0", "black", "isort", "flake8", "mypy"]
 
 [project.scripts]
 edital_summarizer = "edital_summarizer.main:run"
@@ -19,19 +31,3 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.crewai]
 type = "crew"
-
-[tool.poetry]
-name = "edital-summarizer"
-version = "0.1.0"
-description = "A CrewAI-based tool for summarizing bidding documents"
-authors = ["Your Name <your.email@example.com>"]
-
-[tool.poetry.dependencies]
-python = "^3.10"
-crewai = "*"
-PyPDF2 = "*"
-pandas = "*"
-openpyxl = "*"
-python-dotenv = "*"
-typer = { extras = ["all"], version = "*" }
-pyyaml = "*"

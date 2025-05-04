@@ -36,9 +36,13 @@ source .venv/bin/activate  # Linux/Mac
 .venv\Scripts\activate     # Windows
 ```
 
-3. Install dependencies:
+3. Install dependencies using UV:
 ```bash
-uv pip install -r requirements.txt
+# Instalar dependências do projeto
+uv pip install .
+
+# Para desenvolvimento, instale em modo editável
+uv pip install -e ".[dev]"
 ```
 
 4. Set up your environment variables in `.env`:
