@@ -13,10 +13,11 @@ dependencies = [
     "typer[all]",
     "pyyaml",
     "rich",
+    "google-generativeai>=0.3.0",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=7.0", "black", "isort", "flake8", "mypy"]
+dev = ["pytest>=7.0", "black", "isort", "flake8", "mypy", "python-dotenv"]
 
 [project.scripts]
 edital_summarizer = "edital_summarizer.main:run"
