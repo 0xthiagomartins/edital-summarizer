@@ -1,22 +1,16 @@
 from crewai import Agent, Crew, Process, Task
-
-# Remover a importação que causou o erro
-# from crewai.tools import Tool
-
-# Manter a importação do decorador
 from crewai.tools import tool
-
-# Importando apenas ferramentas disponíveis ou implementando nossa própria
-from langchain.tools import BaseTool
-from typing import List, Dict, Optional, Union, Any
+from typing import List, Dict, Optional, Any
 import yaml
 from pathlib import Path
 import json
+import os
+import re
 from rich import print as rprint
 from .types import SummaryType
 from .tools.document_processor import DocumentProcessor
 from .tools.rag_tools import DocumentSearchTool, TableExtractionTool
-import os
+import crewai
 
 
 # Definir ferramentas usando o decorador @tool
@@ -73,160 +67,185 @@ def extract_tables(text: str, table_keyword: str = None) -> str:
     return table_tool._run(text, table_keyword)
 
 
-# Definir funções não decoradas para uso interno
-def _read_file(file_path: str) -> str:
-    """Versão não decorada da função read_file."""
-    try:
-        path = Path(file_path)
-        # ... resto do código da função ...
-    except Exception as e:
-        return f"Erro ao ler arquivo: {str(e)}"
-
-
 class DocumentSummarizerCrew:
-    def __init__(self, language: str = "pt-br", verbose: bool = False):
-        self.config_dir = Path(__file__).parent / "config"
-        self.language = language
-        self.verbose = verbose
+    """Classe para processar documentos de editais e gerar resumos."""
 
-        # Inicializar processador de documentos que já funciona
+    def __init__(self, verbose: bool = False):
+        self.config_dir = Path(__file__).parent / "config"
+        self.verbose = verbose
         self.document_processor = DocumentProcessor(chunk_size=1500, chunk_overlap=150)
 
-        # Não decoramos novamente - usamos as funções já decoradas como ferramentas
-        self.file_reader = read_file
-        self.document_search = search_document
-        self.table_extractor = extract_tables
+        # Verificar versão do CrewAI
+        if hasattr(crewai, "__version__"):
+            crewai_version = crewai.__version__
+            if self.verbose:
+                rprint(f"[dim]Usando CrewAI versão: {crewai_version}[/dim]")
 
-        # Carregar configurações de agentes
+        # Carregar configurações
+        self.agents_config = self._load_agents_config()
+        self.tasks_config = self._load_tasks_config()
+
+        # Inicializar agentes
         self.agents = self._load_agents()
 
-    def _load_agents(self) -> Dict[str, Agent]:
-        """Carrega a configuração dos agentes a partir do arquivo YAML."""
-        with open(self.config_dir / "agents.yaml") as f:
-            agents_config = yaml.safe_load(f)
+    def _load_agents_config(self) -> Dict:
+        """Carrega configurações de agentes do arquivo YAML."""
+        with open(self.config_dir / "agents.yaml", "r") as f:
+            return yaml.safe_load(f)
 
+    def _load_tasks_config(self) -> Dict:
+        """Carrega configurações de tarefas do arquivo YAML."""
+        with open(self.config_dir / "tasks.yaml", "r") as f:
+            return yaml.safe_load(f)
+
+    def _load_agents(self) -> Dict[str, Agent]:
+        """Cria instâncias de agentes baseados nas configurações."""
         agents = {}
 
-        # Processar configurações específicas do idioma
-        for name, config in agents_config.items():
-            if isinstance(config["goal"], dict):
-                config["goal"] = config["goal"][self.language]
-            if isinstance(config["backstory"], dict):
-                config["backstory"] = config["backstory"][self.language]
-
-            # Substituir nomes de ferramentas por instâncias reais
+        for name, config in self.agents_config.items():
+            # Configurar ferramentas
+            tools_list = []
             if "tools" in config:
-                tool_instances = []
                 for tool_name in config["tools"]:
                     if tool_name == "SimpleFileReadTool":
-                        tool_instances.append(self.file_reader)
+                        tools_list.append(read_file)
                     elif tool_name == "DocumentSearchTool":
-                        tool_instances.append(self.document_search)
+                        tools_list.append(search_document)
                     elif tool_name == "TableExtractionTool":
-                        tool_instances.append(self.table_extractor)
-                    else:
-                        if self.verbose:
-                            rprint(f"[red]Ferramenta desconhecida: {tool_name}[/red]")
+                        tools_list.append(extract_tables)
 
-                config["tools"] = tool_instances
-
-            # Configurar o modelo AI com base na tarefa do agente
-            # Agentes para metadados e extração de informações estruturadas usam OpenAI
+            # Configurar modelo de IA com base na tarefa do agente
             if name in ["identifier_agent", "organization_agent", "dates_agent"]:
-                config["llm"] = "openai"
-                config["model_name"] = "gpt-4"  # ou "gpt-4o" se tiver acesso
-                config["temperature"] = (
-                    0.1  # Temperatura baixa para extração estruturada
-                )
-                config["max_tokens"] = 800
-
-            # Agentes para resumos e análises usam Gemini
-            elif name in [
-                "technical_summary_agent",
-                "executive_summary_agent",
-                "legal_summary_agent",
-            ]:
-                config["llm"] = "gemini"
-                config["model_name"] = "gemini-pro"
-                config["temperature"] = (
-                    0.3  # Temperatura um pouco mais alta para criatividade nos resumos
-                )
-                config["max_tokens"] = 1500
-
-            # Para outros agentes genéricos, use Gemini por padrão
+                model_config = {
+                    "llm": "openai",
+                    "model_name": "gpt-4",
+                    "temperature": 0.1,
+                    "max_tokens": 800,
+                }
+            elif name in ["technical_summary_agent", "executive_summary_agent"]:
+                model_config = {
+                    "llm": "gemini",
+                    "model_name": "gemini-pro",
+                    "temperature": 0.3,
+                    "max_tokens": 1500,
+                }
             else:
-                config["llm"] = "gemini"
-                config["model_name"] = "gemini-pro"
-                config["temperature"] = 0.2
-                config["max_tokens"] = 1000
+                model_config = {
+                    "llm": "gemini",
+                    "model_name": "gemini-pro",
+                    "temperature": 0.2,
+                    "max_tokens": 1000,
+                }
 
-            if self.verbose:
-                rprint(
-                    f"[dim]Configurando agente {name} com modelo {config.get('llm')} - {config.get('model_name')}[/dim]"
-                )
+            # Criar o agente
+            try:
+                agent_config = {
+                    "role": config["role"],
+                    "goal": config["goal"],
+                    "backstory": config["backstory"],
+                    "verbose": config.get("verbose", self.verbose),
+                    "allow_delegation": config.get("allow_delegation", True),
+                    "tools": tools_list,
+                    **model_config,
+                }
 
-            agents[name] = self._create_agent_with_model(config)
+                agents[name] = Agent(**agent_config)
+
+                if self.verbose:
+                    rprint(
+                        f"[green]Agente {name} criado com modelo {model_config['llm']} - {model_config['model_name']}[/green]"
+                    )
+
+            except Exception as e:
+                if self.verbose:
+                    rprint(f"[red]Erro ao criar agente {name}: {str(e)}[/red]")
 
         return agents
 
-    def _create_agent_with_model(self, config):
-        """Cria um agente com o modelo especificado, com fallback para alternativas."""
-        primary_llm = config.get("llm", "gemini")
-        primary_model = config.get("model_name")
+    def _create_task(self, task_name: str, text: str) -> Task:
+        """Cria uma tarefa a partir da configuração."""
+        if task_name not in self.tasks_config:
+            raise ValueError(f"Tarefa não encontrada: {task_name}")
 
+        task_config = self.tasks_config[task_name]
+        agent_name = task_config.get("agent")
+
+        if agent_name not in self.agents:
+            raise ValueError(f"Agente não encontrado: {agent_name}")
+
+        # Substituir placeholders na descrição
+        description = task_config["description"]
+        if "{text}" in description:
+            description = description.replace("{text}", text)
+        else:
+            description = f"{description}\n\nTEXTO: {text}"
+
+        # Obter o output esperado
+        expected_output = task_config["expected_output"]
+
+        # Na versão 0.118.0, o método de execução é run() em vez de execute()
         try:
-            # Tentar criar o agente com o modelo primário
-            return Agent(**config)
+            task = Task(
+                description=description,
+                expected_output=expected_output,
+                agent=self.agents[agent_name],
+                async_execution=False,
+            )
+            return task
         except Exception as e:
             if self.verbose:
-                rprint(
-                    f"[yellow]Erro ao criar agente com {primary_llm} - {primary_model}: {str(e)}[/yellow]"
-                )
-                rprint(f"[yellow]Tentando modelo alternativo...[/yellow]")
+                rprint(f"[red]Erro ao criar tarefa {task_name}: {str(e)}[/red]")
 
-            # Configurar modelo alternativo
-            if primary_llm == "openai":
-                config["llm"] = "gemini"
-                config["model_name"] = "gemini-pro"
-            else:
-                config["llm"] = "openai"
-                config["model_name"] = "gpt-3.5-turbo"
+            # Tentativa alternativa - formato mais simples possível
+            return Task(
+                description=description,
+                expected_output=expected_output,
+                agent=self.agents[agent_name],
+            )
 
-            try:
-                if self.verbose:
-                    rprint(
-                        f"[green]Usando modelo alternativo: {config['llm']} - {config['model_name']}[/green]"
-                    )
+    def _extract_json_from_text(self, text: str) -> Dict:
+        """Extrai um objeto JSON de um texto."""
+        if not text:
+            return {}
 
-                return Agent(**config)
-            except Exception as e2:
-                if self.verbose:
-                    rprint(f"[red]Falha também no modelo alternativo: {str(e2)}[/red]")
+        try:
+            # Procurar por texto entre chaves
+            start_idx = text.find("{")
+            end_idx = text.rfind("}")
 
-                # Último recurso: criar um agente simples sem especificar o modelo
-                basic_config = {
-                    "role": config.get("role", "Assistente"),
-                    "goal": config.get("goal", "Ajudar com a tarefa"),
-                    "backstory": config.get("backstory", "Um assistente útil"),
-                    "verbose": config.get("verbose", self.verbose),
-                }
+            if start_idx >= 0 and end_idx >= 0 and start_idx < end_idx:
+                json_str = text[start_idx : end_idx + 1]
+                try:
+                    return json.loads(json_str)
+                except json.JSONDecodeError:
+                    if self.verbose:
+                        rprint(
+                            "[yellow]Texto encontrado não é um JSON válido, tentando limpeza...[/yellow]"
+                        )
+                    # Algumas correções comuns
+                    json_str = json_str.replace("'", '"')
+                    try:
+                        return json.loads(json_str)
+                    except:
+                        pass
 
-                if self.verbose:
-                    rprint("[red]Criando agente básico sem modelo específico[/red]")
+            # Se não conseguir extrair JSON válido, tentar extrair chave-valor
+            result = {}
+            lines = text.split("\n")
+            for line in lines:
+                if ":" in line:
+                    parts = line.split(":", 1)
+                    key = parts[0].strip().strip("\"'")
+                    value = parts[1].strip().strip("\"'")
+                    if key and value:
+                        result[key] = value
 
-                return Agent(**basic_config)
+            return result
 
-    def _load_tasks(self) -> Dict[str, dict]:
-        """Carrega a configuração das tarefas a partir do arquivo YAML."""
-        with open(self.config_dir / "tasks.yaml") as f:
-            tasks_config = yaml.safe_load(f)
-
-        # Processar descrições específicas do idioma
-        for task_name, task_config in tasks_config.items():
-            if isinstance(task_config.get("description"), dict):
-                task_config["description"] = task_config["description"][self.language]
-
-        return tasks_config
+        except Exception as e:
+            if self.verbose:
+                rprint(f"[red]Erro ao extrair JSON do texto: {str(e)}[/red]")
+            return {}
 
     def _load_metadata_json(self, file_path: Path) -> Dict:
         """Carrega metadados do arquivo metadata.json correspondente."""
@@ -236,10 +255,10 @@ class DocumentSummarizerCrew:
                 file_path.parent / "metadata.json",  # Mesmo diretório
                 Path("samples")
                 / file_path.stem
-                / "metadata.json",  # Na pasta samples/nome-do-arquivo
+                / "metadata.json",  # samples/nome-do-arquivo
                 Path("samples")
                 / file_path.parent.name
-                / "metadata.json",  # Na pasta samples/diretório-pai
+                / "metadata.json",  # samples/diretório-pai
                 Path("samples/edital-001") / "metadata.json",  # Local padrão
             ]
 
@@ -290,7 +309,6 @@ class DocumentSummarizerCrew:
 
         # Inicializar metadados vazios
         metadata = {}
-        metadata_from_file = {}
 
         # 1. Primeiro, tentar carregar do metadata.json se tiver um arquivo
         if file_path:
@@ -327,286 +345,164 @@ class DocumentSummarizerCrew:
                             )
                         return metadata
 
-                    # Caso contrário, registramos os campos faltantes para extração
-                    missing_fields = [
-                        field
-                        for field in required_fields
-                        if field not in metadata or not metadata[field]
-                    ]
-                    if self.verbose and missing_fields:
-                        rprint(
-                            f"[yellow]Campos faltantes que serão extraídos: {', '.join(missing_fields)}[/yellow]"
-                        )
+                    if self.verbose:
+                        missing_fields = [
+                            field
+                            for field in required_fields
+                            if field not in metadata or not metadata[field]
+                        ]
+                        if missing_fields:
+                            rprint(
+                                f"[yellow]Campos faltantes que serão extraídos: {', '.join(missing_fields)}[/yellow]"
+                            )
             except Exception as e:
                 if self.verbose:
                     rprint(
                         f"[red]Erro ao processar arquivo de metadados: {str(e)}[/red]"
                     )
 
-        # 2. Se ainda precisamos de metadados, usar a abordagem multi-agente
+        # 2. Extrair metadados usando agentes
         if self.verbose:
-            rprint(
-                "[yellow]Extraindo metadados faltantes com abordagem multi-agente...[/yellow]"
-            )
-
-        # Limite de tamanho para o texto analisado
-        max_len = 5000
-        if len(text) > max_len:
-            truncated_text = text[:max_len]
-            if self.verbose:
-                rprint(
-                    f"[dim]Texto truncado de {len(text)} para {max_len} caracteres[/dim]"
-                )
-        else:
-            truncated_text = text
+            rprint("[yellow]Extraindo metadados com agentes...[/yellow]")
 
         try:
-            # Usar o DocumentProcessor para extração de metadados (caso não tenhamos agentes configurados)
-            if not hasattr(self, "agents") or not self.agents:
-                if self.verbose:
-                    rprint(
-                        "[yellow]Usando DocumentProcessor para extração de metadados (fallback)[/yellow]"
-                    )
-                from .tools.document_processor import DocumentProcessor
+            # Limitar o tamanho do texto para extração de metadados
+            truncated_text = text[:5000] if len(text) > 5000 else text
 
-                processor = DocumentProcessor()
-                metadata_from_llm = processor.extract_metadata_from_text(truncated_text)
-            else:
-                # Criar tarefas específicas para cada agente
-                metadata_from_llm = {}
+            # Criar tarefas para extração de metadados
+            tasks = []
+            metadata_from_llm = {}
 
-                # Define agents específicos para extração de metadados
+            # Verificar quais agentes estão disponíveis
+            if "identifier_agent" in self.agents:
                 try:
-                    identifier_agent = self.agents.get("identifier_agent")
-                    organization_agent = self.agents.get("organization_agent")
-                    dates_agent = self.agents.get("dates_agent")
-                    subject_agent = self.agents.get("subject_agent")
-
-                    # Fallback para criação de agentes caso não existam
-                    if not identifier_agent:
-                        if self.verbose:
-                            rprint(
-                                "[yellow]Criando agente de identificação (fallback)[/yellow]"
-                            )
-                        identifier_agent = Agent(
-                            role="Identificador de Documentos",
-                            goal="Extrair identificadores e números de documentos com precisão",
-                            backstory="Especialista em localizar códigos, números de processo, identificadores de licitação e edital",
-                            verbose=self.verbose,
-                            llm=(
-                                "openai"
-                                if os.environ.get("OPENAI_API_KEY")
-                                else "gemini"
-                            ),
-                            model_name=(
-                                "gpt-3.5-turbo"
-                                if os.environ.get("OPENAI_API_KEY")
-                                else "gemini-pro"
-                            ),
-                            temperature=0.1,
-                        )
-
-                    # Criar e definir tarefas com a nova função helper
-                    identifier_task = create_task_with_timeout(
-                        description=f"Extraia do texto a seguir APENAS os identificadores do documento (número do edital, número da licitação, número do processo). "
-                        f"Responda SOMENTE em formato JSON com as chaves 'public_notice' (número do edital), 'bid_number' (número da licitação) e 'process_id' (número do processo).\n\n"
-                        f"TEXTO: {truncated_text[:1500]}",
-                        expected_output="JSON com identificadores",
-                        agent=identifier_agent,
-                        timeout=30,
-                        async_exec=False,
+                    identifier_task = self._create_task(
+                        "identifier_task", truncated_text
                     )
 
-                    # Executar cada agente individualmente para evitar problemas
-                    if identifier_agent:
-                        try:
-                            identifier_result = self._extract_json_from_text(
-                                identifier_task.execute()
-                            )
-                            metadata_from_llm.update(identifier_result)
-                        except Exception as e:
-                            if self.verbose:
-                                rprint(
-                                    f"[red]Erro no agente de identificação: {str(e)}[/red]"
-                                )
+                    # Verificar e usar o método correto para executar a tarefa
+                    if hasattr(identifier_task, "execute"):
+                        identifier_result = identifier_task.execute()
+                    elif hasattr(identifier_task, "run"):
+                        identifier_result = identifier_task.run()
+                    else:
+                        # Criar uma crew com apenas esta tarefa e executá-la
+                        crew = Crew(
+                            agents=[identifier_task.agent],
+                            tasks=[identifier_task],
+                            verbose=self.verbose,
+                            process=Process.sequential,
+                        )
+                        identifier_result = crew.kickoff()
 
-                    # Executar outros agentes se necessário
-                    # ... (código para os outros agentes)
-
+                    extracted_data = self._extract_json_from_text(identifier_result)
+                    metadata_from_llm.update(extracted_data)
+                    if self.verbose:
+                        rprint(
+                            f"[green]Dados extraídos por identifier_agent: {extracted_data}[/green]"
+                        )
                 except Exception as e:
                     if self.verbose:
-                        rprint(f"[red]Erro ao configurar agentes: {str(e)}[/red]")
-                    metadata_from_llm = {}
+                        rprint(
+                            f"[red]Erro ao executar identifier_agent: {str(e)}[/red]"
+                        )
+
+            if "organization_agent" in self.agents:
+                try:
+                    org_task = self._create_task("organization_task", truncated_text)
+                    org_result = org_task.execute()
+                    extracted_data = self._extract_json_from_text(org_result)
+                    metadata_from_llm.update(extracted_data)
+                    if self.verbose:
+                        rprint(
+                            f"[green]Dados extraídos por organization_agent: {extracted_data}[/green]"
+                        )
+                except Exception as e:
+                    if self.verbose:
+                        rprint(
+                            f"[red]Erro ao executar organization_agent: {str(e)}[/red]"
+                        )
+
+            if "dates_agent" in self.agents:
+                try:
+                    dates_task = self._create_task("dates_task", truncated_text)
+                    dates_result = dates_task.execute()
+                    extracted_data = self._extract_json_from_text(dates_result)
+                    metadata_from_llm.update(extracted_data)
+                    if self.verbose:
+                        rprint(
+                            f"[green]Dados extraídos por dates_agent: {extracted_data}[/green]"
+                        )
+                except Exception as e:
+                    if self.verbose:
+                        rprint(f"[red]Erro ao executar dates_agent: {str(e)}[/red]")
+
+            if "metadata_agent" in self.agents:
+                try:
+                    subject_task = self._create_task("subject_task", truncated_text)
+                    subject_result = subject_task.execute()
+                    extracted_data = self._extract_json_from_text(subject_result)
+                    metadata_from_llm.update(extracted_data)
+                    if self.verbose:
+                        rprint(
+                            f"[green]Dados extraídos por metadata_agent: {extracted_data}[/green]"
+                        )
+                except Exception as e:
+                    if self.verbose:
+                        rprint(f"[red]Erro ao executar metadata_agent: {str(e)}[/red]")
 
             # Mesclar os resultados da extração automática com os metadados do arquivo
-            if metadata_from_llm:
-                # Priorizar dados do arquivo metadata.json e complementar com LLM
-                for key, value in metadata_from_llm.items():
-                    if (
-                        key not in metadata or not metadata[key]
-                    ):  # Só adicionar se não existir ou for vazio
-                        metadata[key] = value
+            for key, value in metadata_from_llm.items():
+                if key not in metadata or not metadata[key]:
+                    metadata[key] = value
 
             return metadata
 
         except Exception as e:
             if self.verbose:
                 rprint(f"[red]Erro na extração de metadados: {str(e)}[/red]")
-            # Se falhou, retornar o que conseguimos extrair do arquivo
-            return metadata or {}
-
-    def _extract_json_from_text(self, text: str) -> Dict:
-        """Extrai um objeto JSON de um texto."""
-        if not text:
-            return {}
-
-        try:
-            # Procurar por texto entre chaves
-            start_idx = text.find("{")
-            end_idx = text.rfind("}")
-
-            if start_idx >= 0 and end_idx >= 0 and start_idx < end_idx:
-                json_str = text[start_idx : end_idx + 1]
-                try:
-                    return json.loads(json_str)
-                except json.JSONDecodeError:
-                    if self.verbose:
-                        rprint(
-                            f"[yellow]Texto encontrado não é um JSON válido, tentando limpeza...[/yellow]"
-                        )
-                    # Algumas correções comuns
-                    json_str = json_str.replace("'", '"')
-                    try:
-                        return json.loads(json_str)
-                    except:
-                        pass
-
-            # Se não conseguiu extrair JSON válido, tenta formato chave-valor
-            result = {}
-            lines = text.split("\n")
-
-            for line in lines:
-                if ":" in line:
-                    parts = line.split(":", 1)
-                    key = parts[0].strip().strip("\"'")
-                    value = parts[1].strip().strip("\"'")
-                    if key and value:
-                        result[key] = value
-
-            return result
-        except Exception as e:
-            if self.verbose:
-                rprint(
-                    f"[yellow]Erro ao extrair JSON: {str(e)}. Usando formato alternativo...[/yellow]"
-                )
-
-            # Fallback para tentativa de extrair manualmente
-            result = {}
-            try:
-                # Tenta extrair campos específicos com base em padrões
-                if "edital" in text.lower() or "notice" in text.lower():
-                    import re
-
-                    # Buscar padrões comuns de edital
-                    edital_patterns = [
-                        r"edital\s*(?:n[°º.]?)?\s*:?\s*([A-Za-z0-9-_/]+)",
-                        r"notice\s*(?:n[°º.]?)?\s*:?\s*([A-Za-z0-9-_/]+)",
-                        r"PE/\d+/\d+",
-                    ]
-                    for pattern in edital_patterns:
-                        match = re.search(pattern, text, re.IGNORECASE)
-                        if match:
-                            result["public_notice"] = match.group(1)
-                            break
-
-                # Extrair linhas com pares chave:valor
-                lines = text.split("\n")
-                for line in lines:
-                    if ":" in line:
-                        parts = line.split(":", 1)
-                        key = parts[0].strip().strip("\"'")
-                        value = parts[1].strip().strip("\"'")
-                        if key and value:
-                            result[key] = value
-            except:
-                pass
-
-            return result
+            return metadata  # Retornar o que conseguimos do arquivo
 
     def generate_summary(self, text: str, summary_type: SummaryType) -> str:
-        """Gera um resumo do documento do tipo especificado."""
-        if self.verbose:
-            rprint(f"[yellow]Iniciando geração de resumo {summary_type}...[/yellow]")
-
-        # Reduzir ainda mais o tamanho do texto para melhorar desempenho
-        max_length = 5000
-        if len(text) > max_length:
-            if self.verbose:
-                rprint(
-                    f"[dim]Texto truncado para geração de resumo (de {len(text)} para {max_length} caracteres)[/dim]"
-                )
-            text = text[:max_length]
-
+        """Gera um resumo do documento conforme o tipo solicitado."""
         try:
-            tasks_config = self._load_tasks()
+            if self.verbose:
+                rprint(f"[yellow]Gerando resumo {summary_type}...[/yellow]")
 
-            # Ajustando para usar os nomes corretos dos agentes
+            # Limitar o tamanho do texto baseado no tipo de resumo
+            max_text_len = 15000 if summary_type == SummaryType.TECHNICAL else 10000
+            truncated_text = text[:max_text_len] if len(text) > max_text_len else text
+
+            # Criar a tarefa de resumo apropriada
             if summary_type == SummaryType.EXECUTIVE:
-                agent_name = "executive_summary_agent"
-                task_name = "executive_summary"
+                if "executive_summary_agent" not in self.agents:
+                    return "Erro: Agente de resumo executivo não encontrado"
+
+                task = self._create_task("executive_summary", truncated_text)
+
             elif summary_type == SummaryType.TECHNICAL:
-                agent_name = "technical_summary_agent"
-                task_name = "technical_summary"
-            elif summary_type == SummaryType.LEGAL:
-                agent_name = "legal_summary_agent"
-                task_name = "legal_summary"
+                if "technical_summary_agent" not in self.agents:
+                    return "Erro: Agente de resumo técnico não encontrado"
+
+                task = self._create_task("technical_summary", truncated_text)
+
             else:
-                raise ValueError(f"Tipo de resumo não suportado: {summary_type}")
+                return f"Tipo de resumo não suportado: {summary_type}"
 
-            # Verificar se o agente existe
-            if agent_name not in self.agents:
-                if self.verbose:
-                    rprint(
-                        f"[red]Agente não encontrado: {agent_name}. Agentes disponíveis: {list(self.agents.keys())}[/red]"
-                    )
-                raise ValueError(
-                    f"Agente não encontrado: {agent_name}. Agentes disponíveis: {list(self.agents.keys())}"
+            # Executar a tarefa - verificar se tem execute() ou run()
+            if hasattr(task, "execute"):
+                result = task.execute()
+            elif hasattr(task, "run"):
+                result = task.run()
+            else:
+                # Criar uma crew com apenas esta tarefa e executá-la
+                single_task_crew = Crew(
+                    agents=[task.agent],
+                    tasks=[task],
+                    verbose=self.verbose,
+                    process=Process.sequential,
                 )
-
-            if self.verbose:
-                rprint(f"[dim]Criando tarefa para o agente {agent_name}...[/dim]")
-
-            # Criar tarefa com prompt mais direto e menor
-            prompt_text = f"{tasks_config[task_name]['description']}\n\nTexto do documento (truncado):\n{text}"
-
-            task = Task(
-                description=prompt_text,
-                expected_output=tasks_config[task_name]["expected_output"],
-                agent=self.agents[agent_name],
-                # Adicionar timeout para evitar execuções longas demais
-                async_execution=False,
-                output_file=None,
-            )
-
-            if self.verbose:
-                rprint(
-                    f"[dim]Iniciando crew de geração de resumo {summary_type}...[/dim]"
-                )
-
-            crew = Crew(
-                agents=[self.agents[agent_name]],
-                tasks=[task],
-                verbose=self.verbose,
-                process=Process.sequential,
-                # Adicionar timeout ao nível da crew
-                task_timeout=180,  # 3 minutos
-                max_rpm=6,  # Limitar a 6 requisições por minuto
-            )
-
-            if self.verbose:
-                rprint(f"[dim]Executando o kickoff da crew...[/dim]")
-
-            result = crew.kickoff()
+                result = single_task_crew.kickoff()
 
             if self.verbose:
                 rprint(f"[green]Resumo {summary_type} gerado com sucesso[/green]")
@@ -616,9 +512,6 @@ class DocumentSummarizerCrew:
         except Exception as e:
             if self.verbose:
                 rprint(f"[red]Erro na geração do resumo {summary_type}: {str(e)}[/red]")
-            # Retornar mensagem de erro mais informativa
-            if "not found in self.agents" in str(e):
-                return f"Erro ao gerar resumo: Agente não encontrado. Agentes disponíveis: {list(self.agents.keys())}"
             return f"Erro ao gerar resumo: {str(e)}"
 
     def process_document(
@@ -640,7 +533,7 @@ class DocumentSummarizerCrew:
                 )
             text = text[:max_text_length]
 
-        # Extrai metadados usando o processador de documentos
+        # Extrai metadados
         metadata = self.extract_metadata(text, file_path=file_path)
 
         # Gera resumos para cada tipo solicitado
@@ -649,36 +542,3 @@ class DocumentSummarizerCrew:
             summaries[str(summary_type)] = self.generate_summary(text, summary_type)
 
         return {"metadata": metadata, "summaries": summaries}
-
-
-def create_task_with_timeout(
-    description, expected_output, agent, timeout=30, async_exec=True
-):
-    """Helper para criar tarefas com timeout consistente."""
-    try:
-        # Tentar criar com context como lista (versão mais recente)
-        return Task(
-            description=description,
-            expected_output=expected_output,
-            agent=agent,
-            async_execution=async_exec,
-            context=[{"key": "timeout", "value": timeout}],
-        )
-    except:
-        try:
-            # Tentar sem context (versão estável)
-            return Task(
-                description=description,
-                expected_output=expected_output,
-                agent=agent,
-                async_execution=async_exec,
-            )
-        except:
-            # Fallback para versões antigas
-            return Task(
-                description=description,
-                expected_output=expected_output,
-                agent=agent,
-                async_execution=async_exec,
-                context={"timeout": timeout},
-            )

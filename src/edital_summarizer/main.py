@@ -16,7 +16,7 @@ from rich.progress import (
 )
 from .tools.document_extractor import DocumentExtractor
 from .crew import DocumentSummarizerCrew
-from .types import SummaryType  # Adicione esta importação
+from .types import SummaryType
 
 warnings.filterwarnings("ignore", category=SyntaxWarning, module="pysbd")
 
@@ -33,7 +33,6 @@ def process_editais(
     input_path: Path,
     output_file: Path,
     summary_types: List[SummaryType],
-    language: str = "pt-br",
     verbose: bool = False,
 ) -> None:
     """Process bidding documents and generate summaries."""
@@ -42,7 +41,7 @@ def process_editais(
         raise typer.Exit(1)
 
     # Initialize the crew
-    crew = DocumentSummarizerCrew(language=language, verbose=verbose)
+    crew = DocumentSummarizerCrew(verbose=verbose)
 
     # Process all documents
     results = []
@@ -89,11 +88,9 @@ def process_editais(
                         ),
                         # Resumos
                         **{
-                            (
-                                f"Resumo {t.to_pt().capitalize()}"
-                                if language == "pt-br"
-                                else f"{str(t).capitalize()} Summary"
-                            ): result["summaries"][str(t)]
+                            f"Resumo {t.to_pt().capitalize()}": result["summaries"][
+                                str(t)
+                            ]
                             for t in summary_types
                         },
                     }
@@ -138,16 +135,10 @@ def main(
         resolve_path=True,
     ),
     summary_types: str = typer.Option(
-        "executive,technical",  # Mudado para inglês
+        "executive,technical",
         "--summary-types",
         "-s",
         help="Comma-separated list of summary types (executive, technical, legal)",
-    ),
-    language: str = typer.Option(
-        "pt-br",
-        "--language",
-        "-l",
-        help="Language to use (pt-br or en). Default: pt-br",
     ),
     verbose: bool = typer.Option(
         False,
@@ -159,13 +150,6 @@ def main(
     """
     Process bidding documents and generate summaries.
     """
-    # Validate language
-    if language not in ["pt-br", "en"]:
-        console.print(
-            f"[red]Error: Invalid language: {language}. Use 'pt-br' or 'en'.[/red]"
-        )
-        raise typer.Exit(1)
-
     # Convert string summary types to enum
     try:
         summary_types_list = [
@@ -176,7 +160,7 @@ def main(
         raise typer.Exit(1)
 
     # Process documents
-    process_editais(input_path, output, summary_types_list, language, verbose)
+    process_editais(input_path, output, summary_types_list, verbose)
 
 
 if __name__ == "__main__":

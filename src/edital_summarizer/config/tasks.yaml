@@ -1,111 +1,54 @@
-research_task:
+identifier_task:
   description: >
-    Conduct a thorough research about {topic}
-    Make sure you find any interesting and relevant information given
-    the current year is {current_year}.
+    Examine o documento e extraia APENAS os seguintes campos em formato JSON:
+    - public_notice: número do edital
+    - bid_number: número da licitação
+    - process_id: número do processo
   expected_output: >
-    A list with 10 bullet points of the most relevant information about {topic}
-  agent: researcher
+    Um JSON com os identificadores extraídos do documento
+  agent: identifier_agent
 
-reporting_task:
+organization_task:
   description: >
-    Review the context you got and expand each topic into a full section for a report.
-    Make sure the report is detailed and contains any and all relevant information.
+    Analise o documento e extraia APENAS os seguintes campos em formato JSON:
+    - agency: nome do órgão responsável
+    - city: cidade onde o evento ocorre
+    - phone: telefone para contato
+    - website: site mencionado no documento
   expected_output: >
-    A fully fledged report with the main topics, each with a full section of information.
-    Formatted as markdown without '```'
-  agent: reporting_analyst
+    Um JSON com informações sobre as organizações e contatos
+  agent: organization_agent
 
-metadata_extraction:
-  description:
-    pt-br: >
-      Analise o texto do documento apresentado e extraia os seguintes metadados em formato JSON:
-      - object: Descrição do objeto principal da licitação (max 150 caracteres)
-      - agency: Nome do órgão/entidade responsável
-      - public_notice: Número do edital/aviso público (ex: PE/2025/001)
-      - bid_number: Número da licitação (ex: 20250001)
-      - status: Status atual (OPEN, CLOSED, CANCELED, DRAFT, etc)
-      - dates: Datas importantes como abertura, encerramento, formato "dd/mm/aaaa hh:mm"
-      - city: Cidade onde está ocorrendo
-      - process_id: Número do processo administrativo
-      - notes: Observações sobre modalidade, tipo de julgamento (max 200 caracteres)
-      - phone: Telefone para contato (se disponível)
-      - website: Site para mais informações (se disponível)
+dates_task:
+  description: >
+    Extraia do documento APENAS as datas importantes em formato JSON com a chave 'dates'.
+    Inclua datas de publicação, abertura, encerramento e outras datas relevantes.
+  expected_output: >
+    Um JSON com as datas importantes do edital
+  agent: dates_agent
 
-      Retorne APENAS o JSON válido, sem texto adicional.
-    en: >
-      Analyze the document text and extract the following metadata in JSON format:
-      - object: Main object description of the bidding (max 150 chars)
-      - agency: Name of the responsible agency/entity
-      - public_notice: Public notice identifier (e.g. PE/2025/001)
-      - bid_number: Bidding number (e.g. 20250001)
-      - status: Current status (OPEN, CLOSED, CANCELED, DRAFT, etc)
-      - dates: Important dates such as opening, closing in "mm/dd/yyyy hh:mm" format
-      - city: City where it's taking place
-      - process_id: Administrative process number
-      - notes: Notes about modality, judgment type (max 200 chars)
-      - phone: Contact phone (if available)
-      - website: Website for more information (if available)
-
-      Return ONLY the valid JSON, with no additional text.
-  expected_output: '{"object": "...", "agency": "...", "public_notice": "...", "bid_number": "...", "status": "...", "dates": "...", "city": "...", "process_id": "...", "notes": "...", "phone": "...", "website": "..."}'
+subject_task:
+  description: >
+    Extraia o objeto principal do edital em formato JSON com a chave 'object'.
+    O objeto deve descrever do que se trata o edital em uma frase objetiva.
+  expected_output: >
+    Um JSON com o objeto principal do edital
+  agent: metadata_agent
 
 executive_summary:
-  description:
-    pt-br: >
-      Gere um resumo executivo conciso (max 300 palavras) deste documento de licitação, focando em:
-      1. Objeto principal do edital
-      2. Pontos-chave para decisão (orçamento, prazos, requisitos críticos)
-      3. Próximos passos e decisões necessárias
-
-      Use linguagem direta e focada em resultados.
-    en: >
-      Generate a concise executive summary (max 300 words) of this bidding document, focusing on:
-      1. Main object of the bid
-      2. Key points for decision-making (budget, deadlines, critical requirements)
-      3. Next steps and necessary decisions
-
-      Use direct language focused on results.
-  expected_output: "Executive Summary of the bidding document."
+  description: >
+    Crie um resumo executivo conciso e claro do documento que destaque
+    os pontos mais importantes para tomadores de decisão. O resumo deve
+    ter no máximo 300 palavras e focar nos aspectos de negócio e financeiros.
+  expected_output: >
+    Um resumo executivo conciso com os pontos-chave do edital
+  agent: executive_summary_agent
 
 technical_summary:
-  description:
-    pt-br: >
-      Gere um resumo técnico detalhado (max 500 palavras) deste documento de licitação, focando em:
-      1. Especificações técnicas detalhadas do objeto
-      2. Requisitos técnicos para participação
-      3. Prazos e condições de entrega/execução
-      4. Critérios técnicos de avaliação
-
-      Use linguagem técnica precisa e objetiva.
-    en: >
-      Generate a detailed technical summary (max 500 words) of this bidding document, focusing on:
-      1. Detailed technical specifications of the object
-      2. Technical requirements for participation
-      3. Deadlines and delivery/execution conditions
-      4. Technical evaluation criteria
-
-      Use precise and objective technical language.
-  expected_output: "Technical Summary of the bidding document."
-
-legal_summary:
-  description:
-    pt-br: >
-      Gere um resumo jurídico (max 400 palavras) deste documento de licitação, focando em:
-      1. Base legal e modalidade da licitação
-      2. Obrigações legais das partes
-      3. Requisitos de habilitação e documentação
-      4. Sanções e penalidades
-      5. Prazos legais e recursos
-
-      Use linguagem jurídica adequada.
-    en: >
-      Generate a legal summary (max 400 words) of this bidding document, focusing on:
-      1. Legal basis and bidding modality
-      2. Legal obligations of the parties
-      3. Qualification and documentation requirements
-      4. Sanctions and penalties
-      5. Legal deadlines and appeals
-
-      Use appropriate legal language.
-  expected_output: "Legal Summary of the bidding document."
+  description: >
+    Gere um resumo técnico detalhado do documento com foco nas especificações
+    técnicas, requisitos e obrigações da licitação. Estruture o resumo em tópicos
+    e inclua valores, prazos e critérios técnicos relevantes.
+  expected_output: >
+    Um resumo técnico detalhado das especificações e requisitos do edital
+  agent: technical_summary_agent
