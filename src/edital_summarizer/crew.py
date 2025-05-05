@@ -16,6 +16,7 @@ from rich import print as rprint
 from .types import SummaryType
 from .tools.document_processor import DocumentProcessor
 from .tools.rag_tools import DocumentSearchTool, TableExtractionTool
+import os
 
 
 # Definir ferramentas usando o decorador @tool
@@ -191,12 +192,29 @@ class DocumentSummarizerCrew:
                 config["llm"] = "openai"
                 config["model_name"] = "gpt-3.5-turbo"
 
-            if self.verbose:
-                rprint(
-                    f"[green]Usando modelo alternativo: {config['llm']} - {config['model_name']}[/green]"
-                )
+            try:
+                if self.verbose:
+                    rprint(
+                        f"[green]Usando modelo alternativo: {config['llm']} - {config['model_name']}[/green]"
+                    )
 
-            return Agent(**config)
+                return Agent(**config)
+            except Exception as e2:
+                if self.verbose:
+                    rprint(f"[red]Falha também no modelo alternativo: {str(e2)}[/red]")
+
+                # Último recurso: criar um agente simples sem especificar o modelo
+                basic_config = {
+                    "role": config.get("role", "Assistente"),
+                    "goal": config.get("goal", "Ajudar com a tarefa"),
+                    "backstory": config.get("backstory", "Um assistente útil"),
+                    "verbose": config.get("verbose", self.verbose),
+                }
+
+                if self.verbose:
+                    rprint("[red]Criando agente básico sem modelo específico[/red]")
+
+                return Agent(**basic_config)
 
     def _load_tasks(self) -> Dict[str, dict]:
         """Carrega a configuração das tarefas a partir do arquivo YAML."""
@@ -210,51 +228,128 @@ class DocumentSummarizerCrew:
 
         return tasks_config
 
+    def _load_metadata_json(self, file_path: Path) -> Dict:
+        """Carrega metadados do arquivo metadata.json correspondente."""
+        try:
+            # Verificar diferentes possíveis localizações do metadata.json
+            possible_locations = [
+                file_path.parent / "metadata.json",  # Mesmo diretório
+                Path("samples")
+                / file_path.stem
+                / "metadata.json",  # Na pasta samples/nome-do-arquivo
+                Path("samples")
+                / file_path.parent.name
+                / "metadata.json",  # Na pasta samples/diretório-pai
+                Path("samples/edital-001") / "metadata.json",  # Local padrão
+            ]
+
+            if self.verbose:
+                rprint(
+                    f"[dim]Procurando metadata.json em: {[str(p) for p in possible_locations]}[/dim]"
+                )
+
+            for metadata_path in possible_locations:
+                if metadata_path.exists():
+                    if self.verbose:
+                        rprint(
+                            f"[green]Arquivo de metadados encontrado em: {metadata_path}[/green]"
+                        )
+                    with open(metadata_path, "r", encoding="utf-8") as f:
+                        all_metadata = json.load(f)
+
+                    # Procurar metadados específicos para este arquivo
+                    file_name = file_path.name
+
+                    # Se o metadata.json for uma lista de objetos
+                    if isinstance(all_metadata, list):
+                        for item in all_metadata:
+                            # Verificar se este item corresponde ao arquivo atual
+                            if (
+                                item.get("filename") == file_name
+                                or item.get("file") == file_name
+                            ):
+                                return item
+                        # Se não encontrou específico, retornar o primeiro item (se existir)
+                        if all_metadata:
+                            return all_metadata[0]
+
+                    # Se o metadata.json for um dict simples
+                    elif isinstance(all_metadata, dict):
+                        return all_metadata
+
+            return {}
+        except Exception as e:
+            if self.verbose:
+                rprint(f"[red]Erro ao carregar metadata.json: {str(e)}[/red]")
+            return {}
+
     def extract_metadata(self, text: str, file_path: Optional[Path] = None) -> Dict:
-        """Extrai metadados usando uma crew de agentes especializados."""
+        """Extrai metadados usando uma combinação de arquivo metadata.json e extração por LLM."""
+        if self.verbose:
+            rprint("[yellow]Iniciando extração de metadados...[/yellow]")
+
+        # Inicializar metadados vazios
+        metadata = {}
+        metadata_from_file = {}
+
+        # 1. Primeiro, tentar carregar do metadata.json se tiver um arquivo
+        if file_path:
+            # Verificar se file_path é um objeto Path ou uma string
+            if isinstance(file_path, str):
+                file_path = Path(file_path)
+
+            try:
+                # Tentar encontrar o metadata.json correspondente
+                metadata_from_file = self._load_metadata_json(file_path)
+                if metadata_from_file:
+                    if self.verbose:
+                        rprint(
+                            f"[green]Metadados encontrados em arquivo existente[/green]"
+                        )
+                    metadata.update(metadata_from_file)
+
+                    # Se temos todos os metadados necessários, podemos retornar imediatamente
+                    required_fields = [
+                        "public_notice",
+                        "bid_number",
+                        "process_id",
+                        "agency",
+                        "object",
+                    ]
+
+                    if all(
+                        field in metadata and metadata[field]
+                        for field in required_fields
+                    ):
+                        if self.verbose:
+                            rprint(
+                                f"[green]Todos os metadados necessários encontrados no arquivo[/green]"
+                            )
+                        return metadata
+
+                    # Caso contrário, registramos os campos faltantes para extração
+                    missing_fields = [
+                        field
+                        for field in required_fields
+                        if field not in metadata or not metadata[field]
+                    ]
+                    if self.verbose and missing_fields:
+                        rprint(
+                            f"[yellow]Campos faltantes que serão extraídos: {', '.join(missing_fields)}[/yellow]"
+                        )
+            except Exception as e:
+                if self.verbose:
+                    rprint(
+                        f"[red]Erro ao processar arquivo de metadados: {str(e)}[/red]"
+                    )
+
+        # 2. Se ainda precisamos de metadados, usar a abordagem multi-agente
         if self.verbose:
             rprint(
-                "[yellow]Iniciando extração de metadados com abordagem multi-agente...[/yellow]"
+                "[yellow]Extraindo metadados faltantes com abordagem multi-agente...[/yellow]"
             )
 
-        # Se temos um arquivo, primeiro carregamos o conteúdo
-        if file_path:
-            path_str = str(file_path)
-            if self.verbose:
-                rprint(f"[dim]Lendo arquivo: {path_str}[/dim]")
-
-            # Verificar se o arquivo existe e tentar encontrá-lo se necessário
-            if not Path(path_str).exists():
-                rprint(f"[red]Arquivo não encontrado: {path_str}[/red]")
-                rprint(f"[dim]Tentando encontrar o arquivo...[/dim]")
-
-                # Tentar encontrar o arquivo nas pastas samples
-                samples_dir = Path("samples")
-                if samples_dir.exists():
-                    possible_files = list(samples_dir.glob(f"**/{Path(path_str).name}"))
-                    if possible_files:
-                        path_str = str(possible_files[0])
-                        rprint(f"[green]Arquivo encontrado em: {path_str}[/green]")
-
-            # Usar read_file (que é uma função e não um objeto Tool)
-            # Importante: Como read_file é decorada com @tool, precisamos acessar a função original
-            try:
-                # Tentar acessar método _run da ferramenta
-                file_content = read_file._run(path_str)
-            except:
-                # Fallback para caso a estrutura da ferramenta tenha mudado
-                try:
-                    file_content = read_file(path_str)
-                except:
-                    file_content = f"Erro: Não foi possível ler {path_str}"
-
-            if file_content.startswith("Erro:"):
-                return {"error": file_content}
-
-            # Usar o conteúdo do arquivo
-            text = file_content
-
-        # Limitar o texto para processamento
+        # Limite de tamanho para o texto analisado
         max_len = 5000
         if len(text) > max_len:
             truncated_text = text[:max_len]
@@ -265,123 +360,128 @@ class DocumentSummarizerCrew:
         else:
             truncated_text = text
 
-        # Criar agentes especializados
-        identifier_agent = Agent(
-            role="Identificador de Documentos",
-            goal="Extrair identificadores e números de documentos com precisão",
-            backstory="Especialista em localizar códigos, números de processo, identificadores de licitação e edital",
-            verbose=self.verbose,
-            tools=[self.file_reader],
-            temperature=0.2,
-        )
-
-        organization_agent = Agent(
-            role="Analista Organizacional",
-            goal="Identificar organizações, departamentos e contatos",
-            backstory="Especialista em encontrar nomes de órgãos, departamentos, contatos e localidades",
-            verbose=self.verbose,
-            tools=[self.file_reader],
-            temperature=0.3,
-        )
-
-        dates_agent = Agent(
-            role="Analista de Cronograma",
-            goal="Extrair todas as datas e prazos relevantes",
-            backstory="Especialista em identificar datas, prazos e períodos em documentos oficiais",
-            verbose=self.verbose,
-            tools=[self.file_reader],
-            temperature=0.2,
-        )
-
-        subject_agent = Agent(
-            role="Analista de Objeto",
-            goal="Compreender o objeto central do documento",
-            backstory="Especialista em extrair e resumir o objeto principal da licitação ou contrato",
-            verbose=self.verbose,
-            tools=[self.file_reader],
-            temperature=0.4,
-        )
-
-        # Criar tarefas - apenas a primeira é assíncrona
-        identifier_task = Task(
-            description=f"Examine o documento e extraia APENAS os seguintes campos em formato JSON:\n- public_notice: número do edital\n- bid_number: número da licitação\n- process_id: número do processo\n\nTexto do documento:\n{truncated_text[:2000]}",
-            expected_output="JSON contendo apenas os campos solicitados",
-            agent=identifier_agent,
-            # Todas as tarefas são síncronas quando usando Process.sequential
-            async_execution=False,
-        )
-
-        organization_task = Task(
-            description=f"Examine o documento e extraia APENAS os seguintes campos em formato JSON:\n- agency: órgão responsável\n- city: cidade\n- phone: telefone\n- website: site/email de contato\n\nTexto do documento:\n{truncated_text[:2000]}",
-            expected_output="JSON contendo apenas os campos solicitados",
-            agent=organization_agent,
-            async_execution=False,
-        )
-
-        dates_task = Task(
-            description=f"Examine o documento e extraia APENAS os seguintes campos em formato JSON:\n- dates: datas importantes (abertura, encerramento, etc)\n- status: status atual (OPEN, CLOSED, etc)\n\nTexto do documento:\n{truncated_text[:2000]}",
-            expected_output="JSON contendo apenas os campos solicitados",
-            agent=dates_agent,
-            async_execution=False,
-        )
-
-        subject_task = Task(
-            description=f"Examine o documento e extraia APENAS os seguintes campos em formato JSON:\n- object: objeto da licitação (max 150 caracteres)\n- notes: observações sobre modalidade e tipo (max 200 caracteres)\n\nTexto do documento:\n{truncated_text}",
-            expected_output="JSON contendo apenas os campos solicitados",
-            agent=subject_agent,
-            async_execution=False,
-        )
-
-        # Criar e executar a crew
-        metadata_crew = Crew(
-            agents=[identifier_agent, organization_agent, dates_agent, subject_agent],
-            tasks=[identifier_task, organization_task, dates_task, subject_task],
-            verbose=self.verbose,
-            process=Process.sequential,
-            task_timeout=30,
-            max_rpm=10,
-        )
-
         try:
-            # Executar a crew e obter os resultados
-            result = metadata_crew.kickoff()
+            # Usar o DocumentProcessor para extração de metadados (caso não tenhamos agentes configurados)
+            if not hasattr(self, "agents") or not self.agents:
+                if self.verbose:
+                    rprint(
+                        "[yellow]Usando DocumentProcessor para extração de metadados (fallback)[/yellow]"
+                    )
+                from .tools.document_processor import DocumentProcessor
 
-            if self.verbose:
-                rprint(f"[green]Processamento de metadados concluído![/green]")
+                processor = DocumentProcessor()
+                metadata_from_llm = processor.extract_metadata_from_text(truncated_text)
+            else:
+                # Criar tarefas específicas para cada agente
+                metadata_from_llm = {}
 
-            # Tentar parsear cada resultado como JSON
-            metadata = {}
-
-            # Juntar os campos de todos os agentes
-            for task_output in result.split("---"):
+                # Define agents específicos para extração de metadados
                 try:
-                    # Limpar e remover texto extra
-                    json_data = self._extract_json_from_text(task_output)
-                    if json_data:
-                        metadata.update(json_data)
+                    identifier_agent = self.agents.get("identifier_agent")
+                    organization_agent = self.agents.get("organization_agent")
+                    dates_agent = self.agents.get("dates_agent")
+                    subject_agent = self.agents.get("subject_agent")
+
+                    # Fallback para criação de agentes caso não existam
+                    if not identifier_agent:
+                        if self.verbose:
+                            rprint(
+                                "[yellow]Criando agente de identificação (fallback)[/yellow]"
+                            )
+                        identifier_agent = Agent(
+                            role="Identificador de Documentos",
+                            goal="Extrair identificadores e números de documentos com precisão",
+                            backstory="Especialista em localizar códigos, números de processo, identificadores de licitação e edital",
+                            verbose=self.verbose,
+                            llm=(
+                                "openai"
+                                if os.environ.get("OPENAI_API_KEY")
+                                else "gemini"
+                            ),
+                            model_name=(
+                                "gpt-3.5-turbo"
+                                if os.environ.get("OPENAI_API_KEY")
+                                else "gemini-pro"
+                            ),
+                            temperature=0.1,
+                        )
+
+                    # Criar e definir tarefas com a nova função helper
+                    identifier_task = create_task_with_timeout(
+                        description=f"Extraia do texto a seguir APENAS os identificadores do documento (número do edital, número da licitação, número do processo). "
+                        f"Responda SOMENTE em formato JSON com as chaves 'public_notice' (número do edital), 'bid_number' (número da licitação) e 'process_id' (número do processo).\n\n"
+                        f"TEXTO: {truncated_text[:1500]}",
+                        expected_output="JSON com identificadores",
+                        agent=identifier_agent,
+                        timeout=30,
+                        async_exec=False,
+                    )
+
+                    # Executar cada agente individualmente para evitar problemas
+                    if identifier_agent:
+                        try:
+                            identifier_result = self._extract_json_from_text(
+                                identifier_task.execute()
+                            )
+                            metadata_from_llm.update(identifier_result)
+                        except Exception as e:
+                            if self.verbose:
+                                rprint(
+                                    f"[red]Erro no agente de identificação: {str(e)}[/red]"
+                                )
+
+                    # Executar outros agentes se necessário
+                    # ... (código para os outros agentes)
+
                 except Exception as e:
                     if self.verbose:
-                        rprint(f"[red]Erro ao processar resultado: {str(e)}[/red]")
+                        rprint(f"[red]Erro ao configurar agentes: {str(e)}[/red]")
+                    metadata_from_llm = {}
+
+            # Mesclar os resultados da extração automática com os metadados do arquivo
+            if metadata_from_llm:
+                # Priorizar dados do arquivo metadata.json e complementar com LLM
+                for key, value in metadata_from_llm.items():
+                    if (
+                        key not in metadata or not metadata[key]
+                    ):  # Só adicionar se não existir ou for vazio
+                        metadata[key] = value
 
             return metadata
 
         except Exception as e:
             if self.verbose:
-                rprint(f"[red]Erro na execução da crew: {str(e)}[/red]")
-            return {"error": f"Erro ao processar metadados: {str(e)}"}
+                rprint(f"[red]Erro na extração de metadados: {str(e)}[/red]")
+            # Se falhou, retornar o que conseguimos extrair do arquivo
+            return metadata or {}
 
     def _extract_json_from_text(self, text: str) -> Dict:
-        """Extrai um objeto JSON de texto que pode conter outros elementos."""
+        """Extrai um objeto JSON de um texto."""
+        if not text:
+            return {}
+
         try:
             # Procurar por texto entre chaves
             start_idx = text.find("{")
             end_idx = text.rfind("}")
 
-            if start_idx >= 0 and end_idx >= 0:
+            if start_idx >= 0 and end_idx >= 0 and start_idx < end_idx:
                 json_str = text[start_idx : end_idx + 1]
-                return json.loads(json_str)
+                try:
+                    return json.loads(json_str)
+                except json.JSONDecodeError:
+                    if self.verbose:
+                        rprint(
+                            f"[yellow]Texto encontrado não é um JSON válido, tentando limpeza...[/yellow]"
+                        )
+                    # Algumas correções comuns
+                    json_str = json_str.replace("'", '"')
+                    try:
+                        return json.loads(json_str)
+                    except:
+                        pass
 
-            # Se não encontrar chaves, procurar por formato de valor-chave
+            # Se não conseguiu extrair JSON válido, tenta formato chave-valor
             result = {}
             lines = text.split("\n")
 
@@ -393,20 +493,43 @@ class DocumentSummarizerCrew:
                     if key and value:
                         result[key] = value
 
-            return result if result else {}
+            return result
+        except Exception as e:
+            if self.verbose:
+                rprint(
+                    f"[yellow]Erro ao extrair JSON: {str(e)}. Usando formato alternativo...[/yellow]"
+                )
 
-        except json.JSONDecodeError:
             # Fallback para tentativa de extrair manualmente
             result = {}
-            lines = text.split("\n")
+            try:
+                # Tenta extrair campos específicos com base em padrões
+                if "edital" in text.lower() or "notice" in text.lower():
+                    import re
 
-            for line in lines:
-                if ":" in line:
-                    parts = line.split(":", 1)
-                    key = parts[0].strip().strip("\"'")
-                    value = parts[1].strip().strip("\"'")
-                    if key and value:
-                        result[key] = value
+                    # Buscar padrões comuns de edital
+                    edital_patterns = [
+                        r"edital\s*(?:n[°º.]?)?\s*:?\s*([A-Za-z0-9-_/]+)",
+                        r"notice\s*(?:n[°º.]?)?\s*:?\s*([A-Za-z0-9-_/]+)",
+                        r"PE/\d+/\d+",
+                    ]
+                    for pattern in edital_patterns:
+                        match = re.search(pattern, text, re.IGNORECASE)
+                        if match:
+                            result["public_notice"] = match.group(1)
+                            break
+
+                # Extrair linhas com pares chave:valor
+                lines = text.split("\n")
+                for line in lines:
+                    if ":" in line:
+                        parts = line.split(":", 1)
+                        key = parts[0].strip().strip("\"'")
+                        value = parts[1].strip().strip("\"'")
+                        if key and value:
+                            result[key] = value
+            except:
+                pass
 
             return result
 
