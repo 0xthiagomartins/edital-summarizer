@@ -5,7 +5,7 @@ description = "edital-summarizer using crewAI"
 authors = [{ name = "Thiago Martins", email = "thiago.fmartins@outlook.com" }]
 requires-python = ">=3.10,<3.13"
 dependencies = [
-    "crewai[tools]>=0.118.0,<1.0.0",
+    "crewai[tools]",
     "PyPDF2",
     "pandas",
     "openpyxl",
@@ -13,8 +13,12 @@ dependencies = [
     "typer[all]",
     "pyyaml",
     "rich",
-    "google-generativeai>=0.3.0",
+    "google-generativeai",
     "pydantic>=2.0.0",
+    "langchain",
+    "langchain-google-genai",
+    "langchain-community",
+    "faiss-cpu",
 ]
 
 [project.optional-dependencies]

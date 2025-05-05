@@ -3,7 +3,7 @@ import sys
 import warnings
 from pathlib import Path
 import pandas as pd
-from typing import List
+from typing import List, Dict
 import json
 import typer
 from rich.console import Console
@@ -65,7 +65,7 @@ def process_editais(
 
             try:
                 # Process document and generate summaries
-                result = crew.process_document(text, summary_types)
+                result = crew.process_document(text, summary_types, file_path=file_path)
 
                 # Add the result to our list
                 results.append(
@@ -73,7 +73,7 @@ def process_editais(
                         "Origem": str(file_path),
                         # Adicionar metadados do JSON
                         "Objeto": metadata.object,
-                        "Data Abertura": metadata.dates.opening,
+                        "Datas": metadata.dates,
                         "Edital": metadata.public_notice,
                         "Status": metadata.status,
                         "Órgão": metadata.agency,

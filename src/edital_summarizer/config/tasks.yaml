@@ -18,51 +18,94 @@ reporting_task:
 
 metadata_extraction:
   description:
-    en: |
-      Extract the following metadata from the document text:
-      - Title
-      - Organization/Entity
-      - Publication Date
-      - Deadline Date
-      - Object/Subject
-      - Reference Number
-      - Estimated Value
-      - Contact Information
+    pt-br: >
+      Analise o texto do documento apresentado e extraia os seguintes metadados em formato JSON:
+      - object: Descrição do objeto principal da licitação (max 150 caracteres)
+      - agency: Nome do órgão/entidade responsável
+      - public_notice: Número do edital/aviso público (ex: PE/2025/001)
+      - bid_number: Número da licitação (ex: 20250001)
+      - status: Status atual (OPEN, CLOSED, CANCELED, DRAFT, etc)
+      - dates: Datas importantes como abertura, encerramento, formato "dd/mm/aaaa hh:mm"
+      - city: Cidade onde está ocorrendo
+      - process_id: Número do processo administrativo
+      - notes: Observações sobre modalidade, tipo de julgamento (max 200 caracteres)
+      - phone: Telefone para contato (se disponível)
+      - website: Site para mais informações (se disponível)
 
-      Return the data in JSON format.
-    pt-br: |
-      Extraia os seguintes metadados do texto do documento:
-      - Título
-      - Organização/Entidade
-      - Data de Publicação
-      - Data Limite
-      - Objeto
-      - Número de Referência
-      - Valor Estimado
-      - Informações de Contato
+      Retorne APENAS o JSON válido, sem texto adicional.
+    en: >
+      Analyze the document text and extract the following metadata in JSON format:
+      - object: Main object description of the bidding (max 150 chars)
+      - agency: Name of the responsible agency/entity
+      - public_notice: Public notice identifier (e.g. PE/2025/001)
+      - bid_number: Bidding number (e.g. 20250001)
+      - status: Current status (OPEN, CLOSED, CANCELED, DRAFT, etc)
+      - dates: Important dates such as opening, closing in "mm/dd/yyyy hh:mm" format
+      - city: City where it's taking place
+      - process_id: Administrative process number
+      - notes: Notes about modality, judgment type (max 200 chars)
+      - phone: Contact phone (if available)
+      - website: Website for more information (if available)
 
-      Retorne os dados em formato JSON.
-  expected_output: |
-    A JSON object containing the following fields:
-    {
-      "title": "string",
-      "organization": "string",
-      "publication_date": "string",
-      "deadline_date": "string",
-      "object": "string",
-      "reference_number": "string",
-      "estimated_value": "string",
-      "contact_info": "string"
-    }
+      Return ONLY the valid JSON, with no additional text.
+  expected_output: '{"object": "...", "agency": "...", "public_notice": "...", "bid_number": "...", "status": "...", "dates": "...", "city": "...", "process_id": "...", "notes": "...", "phone": "...", "website": "..."}'
 
 executive_summary:
   description:
-    en: "Generate a concise executive summary focusing on key points and decisions needed."
-    pt-br: "Gere um resumo executivo conciso focando nos pontos-chave e decisões necessárias."
-  expected_output: "A concise executive summary text with the main points and decisions needed."
+    pt-br: >
+      Gere um resumo executivo conciso (max 300 palavras) deste documento de licitação, focando em:
+      1. Objeto principal do edital
+      2. Pontos-chave para decisão (orçamento, prazos, requisitos críticos)
+      3. Próximos passos e decisões necessárias
+
+      Use linguagem direta e focada em resultados.
+    en: >
+      Generate a concise executive summary (max 300 words) of this bidding document, focusing on:
+      1. Main object of the bid
+      2. Key points for decision-making (budget, deadlines, critical requirements)
+      3. Next steps and necessary decisions
+
+      Use direct language focused on results.
+  expected_output: "Executive Summary of the bidding document."
 
 technical_summary:
   description:
-    en: "Generate a detailed technical summary focusing on specifications and requirements."
-    pt-br: "Gere um resumo técnico detalhado focando em especificações e requisitos."
-  expected_output: "A detailed technical summary text with specifications and requirements."
+    pt-br: >
+      Gere um resumo técnico detalhado (max 500 palavras) deste documento de licitação, focando em:
+      1. Especificações técnicas detalhadas do objeto
+      2. Requisitos técnicos para participação
+      3. Prazos e condições de entrega/execução
+      4. Critérios técnicos de avaliação
+
+      Use linguagem técnica precisa e objetiva.
+    en: >
+      Generate a detailed technical summary (max 500 words) of this bidding document, focusing on:
+      1. Detailed technical specifications of the object
+      2. Technical requirements for participation
+      3. Deadlines and delivery/execution conditions
+      4. Technical evaluation criteria
+
+      Use precise and objective technical language.
+  expected_output: "Technical Summary of the bidding document."
+
+legal_summary:
+  description:
+    pt-br: >
+      Gere um resumo jurídico (max 400 palavras) deste documento de licitação, focando em:
+      1. Base legal e modalidade da licitação
+      2. Obrigações legais das partes
+      3. Requisitos de habilitação e documentação
+      4. Sanções e penalidades
+      5. Prazos legais e recursos
+
+      Use linguagem jurídica adequada.
+    en: >
+      Generate a legal summary (max 400 words) of this bidding document, focusing on:
+      1. Legal basis and bidding modality
+      2. Legal obligations of the parties
+      3. Qualification and documentation requirements
+      4. Sanctions and penalties
+      5. Legal deadlines and appeals
+
+      Use appropriate legal language.
+  expected_output: "Legal Summary of the bidding document."
