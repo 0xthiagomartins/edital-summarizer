@@ -1,167 +1,200 @@
 #!/usr/bin/env python
+import os
 import sys
+import argparse
 import warnings
 from pathlib import Path
-import pandas as pd
-from typing import List, Dict
-import json
-import typer
-from rich.console import Console
-from rich.progress import (
-    Progress,
-    SpinnerColumn,
-    TextColumn,
-    TimeElapsedColumn,
-    BarColumn,
-)
-from .tools.document_extractor import DocumentExtractor
-from .crew import DocumentSummarizerCrew
-from .types import SummaryType
+from dotenv import load_dotenv
+
+# Carregando variáveis de ambiente diretamente
+load_dotenv()
+
+from edital_summarizer.crew import EditalSummarizer
+from edital_summarizer.processors.document import DocumentProcessor
 
 warnings.filterwarnings("ignore", category=SyntaxWarning, module="pysbd")
 
-# This main file is intended to be a way for you to run your
-# crew locally, so refrain from adding unnecessary logic into this file.
-# Replace with inputs you want to test with, it will automatically
-# interpolate any tasks and agents information
 
-app = typer.Typer(help="Process bidding documents and generate summaries.")
-console = Console()
+def parse_args():
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(
+        description="Processador de Editais de Licitação utilizando CrewAI"
+    )
 
+    parser.add_argument(
+        "document_path",
+        help="Caminho para o documento ou diretório de documentos a serem processados",
+    )
 
-def process_editais(
-    input_path: Path,
-    output_file: Path,
-    summary_types: List[SummaryType],
-    verbose: bool = False,
-) -> None:
-    """Process bidding documents and generate summaries."""
-    if not input_path.exists():
-        console.print(f"[red]Error: Input path does not exist: {input_path}[/red]")
-        raise typer.Exit(1)
-
-    # Initialize the crew
-    crew = DocumentSummarizerCrew(verbose=verbose)
-
-    # Process all documents
-    results = []
-    extracted_texts = DocumentExtractor.process_directory(input_path)
-
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        TimeElapsedColumn(),
-        BarColumn(),
-        console=console,
-        transient=False if verbose else True,
-    ) as progress:
-        task = progress.add_task("Processing documents...", total=len(extracted_texts))
-
-        for file_path, (text, metadata) in extracted_texts.items():
-            if verbose:
-                console.print(f"\n[bold blue]Processing: {file_path}[/bold blue]")
-                console.print(f"Text length: {len(text)} characters")
-
-            try:
-                # Process document and generate summaries
-                result = crew.process_document(text, summary_types, file_path=file_path)
-
-                # Add the result to our list
-                results.append(
-                    {
-                        "Origem": str(file_path),
-                        # Adicionar metadados do JSON
-                        "Objeto": metadata.object,
-                        "Datas": metadata.dates,
-                        "Edital": metadata.public_notice,
-                        "Status": metadata.status,
-                        "Órgão": metadata.agency,
-                        "Cidade": metadata.city,
-                        "Número": metadata.bid_number,
-                        "Processo": metadata.process_id,
-                        "Telefone": metadata.phone or "",
-                        "Website": metadata.website or "",
-                        "Observações": metadata.notes,
-                        # Metadados extraídos pela LLM
-                        "Metadados LLM": json.dumps(
-                            result["metadata"], ensure_ascii=False
-                        ),
-                        # Resumos
-                        **{
-                            f"Resumo {t.to_pt().capitalize()}": result["summaries"][
-                                str(t)
-                            ]
-                            for t in summary_types
-                        },
-                    }
-                )
-
-                if verbose:
-                    console.print(f"[green]✓ Completed processing: {file_path}[/green]")
-
-            except Exception as e:
-                console.print(f"[red]Error processing {file_path}: {str(e)}[/red]")
-                if verbose:
-                    console.print_exception()
-
-            progress.advance(task)
-
-    # Create DataFrame and save to Excel
-    df = pd.DataFrame(results)
-    df.to_excel(output_file, index=False, engine="openpyxl")
-
-    console.print(f"[green]Report saved to: {output_file}[/green]")
-
-
-@app.command()
-def main(
-    input_path: Path = typer.Argument(
-        ...,
-        help="Path to the directory containing bidding documents",
-        exists=True,
-        file_okay=False,
-        dir_okay=True,
-        readable=True,
-        resolve_path=True,
-    ),
-    output: Path = typer.Option(
-        "report.xlsx",
-        "--output",
+    parser.add_argument(
         "-o",
-        help="Output Excel file",
-        file_okay=True,
-        dir_okay=False,
-        writable=True,
-        resolve_path=True,
-    ),
-    summary_types: str = typer.Option(
-        "executive,technical",
-        "--summary-types",
-        "-s",
-        help="Comma-separated list of summary types (executive, technical, legal)",
-    ),
-    verbose: bool = typer.Option(
-        False,
-        "--verbose",
-        "-v",
-        help="Enable verbose output",
-    ),
-) -> None:
-    """
-    Process bidding documents and generate summaries.
-    """
-    # Convert string summary types to enum
-    try:
-        summary_types_list = [
-            SummaryType.from_str(t.strip()) for t in summary_types.split(",")
-        ]
-    except ValueError as e:
-        console.print(f"[red]Error: {str(e)}[/red]")
-        raise typer.Exit(1)
+        "--output",
+        default="relatorio_editais.xlsx",
+        help="Caminho para o arquivo de saída (Excel)",
+    )
 
-    # Process documents
-    process_editais(input_path, output, summary_types_list, verbose)
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Ativar modo verboso para exibir logs detalhados",
+    )
+
+    parser.add_argument(
+        "--exec-only",
+        action="store_true",
+        help="Gerar apenas resumo executivo (mais rápido)",
+    )
+
+    parser.add_argument(
+        "--tech-only",
+        action="store_true",
+        help="Gerar apenas resumo técnico (mais rápido)",
+    )
+
+    parser.add_argument(
+        "--timeout",
+        type=int,
+        default=300,
+        help="Timeout para chamadas de API em segundos (padrão: 300)",
+    )
+
+    parser.add_argument(
+        "--scan-only",
+        action="store_true",
+        help="Apenas escanear os documentos sem processá-los",
+    )
+
+    parser.add_argument(
+        "--ignore-metadata",
+        action="store_true",
+        help="Ignorar arquivo metadata.json e sempre extrair metadados usando IA",
+    )
+
+    return parser.parse_args()
+
+
+def check_environment():
+    """Verifica se as variáveis de ambiente necessárias estão definidas."""
+    required_vars = {
+        "OPENAI_API_KEY": "Necessária para os modelos OpenAI GPT-4",
+        "GOOGLE_API_KEY": "Necessária para os modelos Google Gemini Pro",
+    }
+
+    missing = []
+    for var, desc in required_vars.items():
+        if not os.environ.get(var):
+            missing.append(f"{var}: {desc}")
+
+    if missing:
+        print("ERRO: Variáveis de ambiente necessárias não definidas:")
+        for msg in missing:
+            print(f"  - {msg}")
+        print(
+            "\nDefina essas variáveis no arquivo .env ou no ambiente antes de executar."
+        )
+        sys.exit(1)
+
+
+def run():
+    """
+    Função principal para execução da CLI.
+    """
+    args = parse_args()
+
+    # Validar caminho do documento
+    document_path = args.document_path
+    if not os.path.exists(document_path):
+        print(f"ERRO: Caminho não encontrado: {document_path}")
+        sys.exit(1)
+
+    # Criar diretório de saída se necessário
+    output_file = args.output
+    output_dir = os.path.dirname(output_file)
+    if output_dir and not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+
+    if args.verbose:
+        print(f"Processando: {document_path}")
+        print(f"Arquivo de saída: {output_file}")
+
+    try:
+        # Se --scan-only, apenas escaneamos os documentos
+        if args.scan_only:
+            processor = DocumentProcessor()
+            document_data = processor.process_path(document_path)
+
+            print("\n=== DOCUMENTOS ENCONTRADOS ===")
+
+            if "documents" in document_data:
+                docs = document_data["documents"]
+                print(f"Total de documentos: {len(docs)}")
+
+                if document_data.get("has_metadata_file"):
+                    print(f"\nMetadados encontrados no diretório: metadata.json")
+                    metadata = document_data.get("metadata", {})
+                    if metadata:
+                        print(
+                            f"  Objeto: {metadata.get('subject', {}).get('object', 'N/A')}"
+                        )
+                        print(
+                            f"  Órgão: {metadata.get('organization', {}).get('organization', 'N/A')}"
+                        )
+                        print(
+                            f"  Edital: {metadata.get('identifier', {}).get('public_notice', 'N/A')}"
+                        )
+
+                for i, doc in enumerate(docs, 1):
+                    print(f"\nDocumento {i}: {doc['file_name']}")
+                    print(f"  Tipo: {doc.get('type', 'desconhecido')}")
+                    print(f"  Tamanho: {doc['size']} caracteres")
+
+                    if doc.get("has_metadata_file"):
+                        print(f"  Metadados: Encontrados (metadata.json)")
+            else:
+                # Arquivo único
+                print(f"Documento: {document_data['file_name']}")
+                print(f"Tipo: {document_data.get('type', 'desconhecido')}")
+                print(f"Tamanho: {document_data['size']} caracteres")
+
+                if document_data.get("has_metadata_file"):
+                    print(f"Metadados: Encontrados (metadata.json)")
+                    metadata = document_data.get("metadata", {})
+                    if metadata:
+                        print(
+                            f"  Objeto: {metadata.get('subject', {}).get('object', 'N/A')}"
+                        )
+                        print(
+                            f"  Órgão: {metadata.get('organization', {}).get('organization', 'N/A')}"
+                        )
+                        print(
+                            f"  Edital: {metadata.get('identifier', {}).get('public_notice', 'N/A')}"
+                        )
+
+            sys.exit(0)
+
+        # Caso contrário, verificamos as variáveis de ambiente
+        check_environment()
+
+        # Criar e configurar o crew
+        edital_summarizer = EditalSummarizer()
+
+        # Processar o documento
+        result = edital_summarizer.process_document(
+            document_path=document_path,
+            output_file=output_file,
+            verbose=args.verbose,
+            ignore_metadata=args.ignore_metadata,
+        )
+
+        print(f"\nProcessamento concluído com sucesso!")
+        print(f"Documentos processados: {result['documents_processed']}")
+        print(f"Relatório salvo em: {result['output_file']}")
+
+    except Exception as e:
+        print(f"ERRO durante o processamento: {str(e)}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
-    app()
+    run()

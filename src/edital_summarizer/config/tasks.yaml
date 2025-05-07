@@ -1,54 +1,95 @@
-identifier_task:
-  description: >
-    Examine o documento e extraia APENAS os seguintes campos em formato JSON:
-    - public_notice: número do edital
-    - bid_number: número da licitação
-    - process_id: número do processo
-  expected_output: >
-    Um JSON com os identificadores extraídos do documento
-  agent: identifier_agent
+# Remover completamente as tarefas antigas
+# research_task:
+#   description: >
+#     Conduct a thorough research about {topic}
+#     Make sure you find any interesting and relevant information given
+#     the current year is {current_year}.
+#   expected_output: >
+#     A list with 10 bullet points of the most relevant information about {topic}
+#   agent: researcher
+#
+# reporting_task:
+#   description: >
+#     Review the context you got and expand each topic into a full section for a report.
+#     Make sure the report is detailed and contains any and all relevant information.
+#   expected_output: >
+#     A fully fledged report with the main topics, each with a full section of information.
+#     Formatted as markdown without '```'
+#   agent: reporting_analyst
 
-organization_task:
+metadata_task:
   description: >
-    Analise o documento e extraia APENAS os seguintes campos em formato JSON:
-    - agency: nome do órgão responsável
-    - city: cidade onde o evento ocorre
-    - phone: telefone para contato
-    - website: site mencionado no documento
-  expected_output: >
-    Um JSON com informações sobre as organizações e contatos
-  agent: organization_agent
+    Analise o documento de edital e extraia as seguintes informações:
 
-dates_task:
-  description: >
-    Extraia do documento APENAS as datas importantes em formato JSON com a chave 'dates'.
-    Inclua datas de publicação, abertura, encerramento e outras datas relevantes.
-  expected_output: >
-    Um JSON com as datas importantes do edital
-  agent: dates_agent
+    1. IDENTIFICADORES:
+    - Número do edital (public_notice)
+    - Número do processo (process_id)
+    - Número da licitação (bid_number)
 
-subject_task:
-  description: >
-    Extraia o objeto principal do edital em formato JSON com a chave 'object'.
-    O objeto deve descrever do que se trata o edital em uma frase objetiva.
+    2. ORGANIZAÇÕES:
+    - Órgão responsável (organization)
+    - Telefone de contato (phone)
+    - Website (website)
+    - Cidade/Local (location)
+
+    3. OBJETO:
+    - Título do edital (title)
+    - Objeto da licitação (object)
+    - Datas importantes (dates)
+
+    Estruture sua resposta em formato JSON completo com todas as informações acima.
+
   expected_output: >
-    Um JSON com o objeto principal do edital
+    Um JSON contendo todas as informações extraídas nas categorias solicitadas.
   agent: metadata_agent
+
+summary_task:
+  description: >
+    Com base no documento do edital, crie:
+
+    1. Um RESUMO EXECUTIVO conciso (máximo 10.000 caracteres) destacando os 
+       pontos-chave para tomadores de decisão, incluindo objeto, prazos, valores 
+       e requisitos principais.
+       
+    2. Um RESUMO TÉCNICO detalhado (máximo 15.000 caracteres) com as especificações
+       técnicas relevantes, requisitos, condições de entrega/execução e outras
+       informações técnicas importantes.
+
+    IMPORTANTE: Seu resultado DEVE seguir EXATAMENTE este formato:
+
+    # RESUMO EXECUTIVO
+    (conteúdo do resumo executivo aqui)
+
+    # RESUMO TÉCNICO
+    (conteúdo do resumo técnico aqui)
+
+  expected_output: >
+    Um documento markdown com as duas seções de resumo claramente separadas.
+  agent: summary_agent
 
 executive_summary:
   description: >
-    Crie um resumo executivo conciso e claro do documento que destaque
-    os pontos mais importantes para tomadores de decisão. O resumo deve
-    ter no máximo 300 palavras e focar nos aspectos de negócio e financeiros.
+    Com base nas informações extraídas do edital, crie um resumo executivo
+    conciso que destaque os pontos mais importantes do edital. O resumo deve
+    ter no máximo 10.000 caracteres e ser escrito em linguagem clara e direta,
+    focando em informações relevantes para tomadores de decisão.
+
+    Utilize as informações do documento e os metadados fornecidos.
   expected_output: >
-    Um resumo executivo conciso com os pontos-chave do edital
+    Um texto em formato markdown com um resumo executivo do edital, destacando
+    pontos-chave como objeto, prazos, valores e requisitos principais.
   agent: executive_summary_agent
 
 technical_summary:
   description: >
-    Gere um resumo técnico detalhado do documento com foco nas especificações
-    técnicas, requisitos e obrigações da licitação. Estruture o resumo em tópicos
-    e inclua valores, prazos e critérios técnicos relevantes.
+    Com base nas informações extraídas do edital, crie um resumo técnico detalhado
+    que capture todas as especificações técnicas relevantes. O resumo deve ter no
+    máximo 15.000 caracteres e incluir detalhes sobre requisitos técnicos, 
+    especificações, condições de entrega/execução e outras informações técnicas
+    importantes.
+
+    Utilize as informações do documento e os metadados fornecidos.
   expected_output: >
-    Um resumo técnico detalhado das especificações e requisitos do edital
+    Um texto em formato markdown com um resumo técnico detalhado do edital,
+    incluindo todas as especificações e requisitos técnicos relevantes.
   agent: technical_summary_agent

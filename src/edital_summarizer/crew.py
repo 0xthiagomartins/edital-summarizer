@@ -1,544 +1,383 @@
 from crewai import Agent, Crew, Process, Task
-from crewai.tools import tool
-from typing import List, Dict, Optional, Any
-import yaml
-from pathlib import Path
-import json
+from crewai.project import CrewBase, agent, crew, task
+from crewai.agents.agent_builder.base_agent import BaseAgent
+from typing import List, Dict, Any, Optional, Union
 import os
-import re
-from rich import print as rprint
-from .types import SummaryType
-from .tools.document_processor import DocumentProcessor
-from .tools.rag_tools import DocumentSearchTool, TableExtractionTool
-import crewai
-
-
-# Definir ferramentas usando o decorador @tool
-@tool
-def read_file(file_path: str) -> str:
-    """Lê o conteúdo de arquivos de texto e PDF."""
-    try:
-        path = Path(file_path)
-
-        # Tentar encontrar o arquivo se não existir no caminho especificado
-        if not path.exists():
-            # Verificar se é apenas um nome de arquivo (sem diretório)
-            if not path.parent or path.parent == Path("."):
-                # Tentar encontrar em diretórios comuns
-                possible_locations = [
-                    Path("samples") / path.name,
-                    Path("samples/edital-001") / path.name,
-                    Path().cwd() / path.name,
-                ]
-
-                for possible_path in possible_locations:
-                    if possible_path.exists():
-                        path = possible_path
-                        break
-
-        if not path.exists():
-            return f"Erro: Arquivo não encontrado: {file_path}. Verifique o caminho."
-
-        if path.suffix.lower() == ".pdf":
-            # Para PDFs, usamos PyPDFLoader
-            from langchain_community.document_loaders import PyPDFLoader
-
-            loader = PyPDFLoader(str(path))
-            documents = loader.load()
-            return "\n".join([doc.page_content for doc in documents])
-        else:
-            # Para outros arquivos, lemos como texto
-            return path.read_text(errors="replace")
-    except Exception as e:
-        return f"Erro ao ler arquivo: {str(e)}"
-
-
-@tool
-def search_document(query: str, text: str = None, file_path: str = None) -> str:
-    """Busca informações específicas dentro de um documento usando RAG."""
-    search_tool = DocumentSearchTool()
-    return search_tool._run(query, text, file_path)
-
-
-@tool
-def extract_tables(text: str, table_keyword: str = None) -> str:
-    """Extrai tabelas de documentos e as retorna em formato estruturado."""
-    table_tool = TableExtractionTool()
-    return table_tool._run(text, table_keyword)
-
-
-class DocumentSummarizerCrew:
-    """Classe para processar documentos de editais e gerar resumos."""
-
-    def __init__(self, verbose: bool = False):
-        self.config_dir = Path(__file__).parent / "config"
-        self.verbose = verbose
-        self.document_processor = DocumentProcessor(chunk_size=1500, chunk_overlap=150)
-
-        # Verificar versão do CrewAI
-        if hasattr(crewai, "__version__"):
-            crewai_version = crewai.__version__
-            if self.verbose:
-                rprint(f"[dim]Usando CrewAI versão: {crewai_version}[/dim]")
-
-        # Carregar configurações
-        self.agents_config = self._load_agents_config()
-        self.tasks_config = self._load_tasks_config()
-
-        # Inicializar agentes
-        self.agents = self._load_agents()
-
-    def _load_agents_config(self) -> Dict:
-        """Carrega configurações de agentes do arquivo YAML."""
-        with open(self.config_dir / "agents.yaml", "r") as f:
-            return yaml.safe_load(f)
-
-    def _load_tasks_config(self) -> Dict:
-        """Carrega configurações de tarefas do arquivo YAML."""
-        with open(self.config_dir / "tasks.yaml", "r") as f:
-            return yaml.safe_load(f)
-
-    def _load_agents(self) -> Dict[str, Agent]:
-        """Cria instâncias de agentes baseados nas configurações."""
-        agents = {}
-
-        for name, config in self.agents_config.items():
-            # Configurar ferramentas
-            tools_list = []
-            if "tools" in config:
-                for tool_name in config["tools"]:
-                    if tool_name == "SimpleFileReadTool":
-                        tools_list.append(read_file)
-                    elif tool_name == "DocumentSearchTool":
-                        tools_list.append(search_document)
-                    elif tool_name == "TableExtractionTool":
-                        tools_list.append(extract_tables)
-
-            # Configurar modelo de IA com base na tarefa do agente
-            if name in ["identifier_agent", "organization_agent", "dates_agent"]:
-                model_config = {
-                    "llm": "openai",
-                    "model_name": "gpt-4",
-                    "temperature": 0.1,
-                    "max_tokens": 800,
-                }
-            elif name in ["technical_summary_agent", "executive_summary_agent"]:
-                model_config = {
-                    "llm": "gemini",
-                    "model_name": "gemini-pro",
-                    "temperature": 0.3,
-                    "max_tokens": 1500,
-                }
-            else:
-                model_config = {
-                    "llm": "gemini",
-                    "model_name": "gemini-pro",
-                    "temperature": 0.2,
-                    "max_tokens": 1000,
-                }
-
-            # Criar o agente
-            try:
-                agent_config = {
-                    "role": config["role"],
-                    "goal": config["goal"],
-                    "backstory": config["backstory"],
-                    "verbose": config.get("verbose", self.verbose),
-                    "allow_delegation": config.get("allow_delegation", True),
-                    "tools": tools_list,
-                    **model_config,
-                }
-
-                agents[name] = Agent(**agent_config)
-
-                if self.verbose:
-                    rprint(
-                        f"[green]Agente {name} criado com modelo {model_config['llm']} - {model_config['model_name']}[/green]"
-                    )
-
-            except Exception as e:
-                if self.verbose:
-                    rprint(f"[red]Erro ao criar agente {name}: {str(e)}[/red]")
-
-        return agents
-
-    def _create_task(self, task_name: str, text: str) -> Task:
-        """Cria uma tarefa a partir da configuração."""
-        if task_name not in self.tasks_config:
-            raise ValueError(f"Tarefa não encontrada: {task_name}")
-
-        task_config = self.tasks_config[task_name]
-        agent_name = task_config.get("agent")
-
-        if agent_name not in self.agents:
-            raise ValueError(f"Agente não encontrado: {agent_name}")
-
-        # Substituir placeholders na descrição
-        description = task_config["description"]
-        if "{text}" in description:
-            description = description.replace("{text}", text)
-        else:
-            description = f"{description}\n\nTEXTO: {text}"
-
-        # Obter o output esperado
-        expected_output = task_config["expected_output"]
-
-        # Na versão 0.118.0, o método de execução é run() em vez de execute()
-        try:
-            task = Task(
-                description=description,
-                expected_output=expected_output,
-                agent=self.agents[agent_name],
-                async_execution=False,
-            )
-            return task
-        except Exception as e:
-            if self.verbose:
-                rprint(f"[red]Erro ao criar tarefa {task_name}: {str(e)}[/red]")
-
-            # Tentativa alternativa - formato mais simples possível
-            return Task(
-                description=description,
-                expected_output=expected_output,
-                agent=self.agents[agent_name],
-            )
-
-    def _extract_json_from_text(self, text: str) -> Dict:
-        """Extrai um objeto JSON de um texto."""
-        if not text:
-            return {}
-
-        try:
-            # Procurar por texto entre chaves
-            start_idx = text.find("{")
-            end_idx = text.rfind("}")
-
-            if start_idx >= 0 and end_idx >= 0 and start_idx < end_idx:
-                json_str = text[start_idx : end_idx + 1]
-                try:
-                    return json.loads(json_str)
-                except json.JSONDecodeError:
-                    if self.verbose:
-                        rprint(
-                            "[yellow]Texto encontrado não é um JSON válido, tentando limpeza...[/yellow]"
-                        )
-                    # Algumas correções comuns
-                    json_str = json_str.replace("'", '"')
-                    try:
-                        return json.loads(json_str)
-                    except:
-                        pass
-
-            # Se não conseguir extrair JSON válido, tentar extrair chave-valor
-            result = {}
-            lines = text.split("\n")
-            for line in lines:
-                if ":" in line:
-                    parts = line.split(":", 1)
-                    key = parts[0].strip().strip("\"'")
-                    value = parts[1].strip().strip("\"'")
-                    if key and value:
-                        result[key] = value
-
-            return result
-
-        except Exception as e:
-            if self.verbose:
-                rprint(f"[red]Erro ao extrair JSON do texto: {str(e)}[/red]")
-            return {}
-
-    def _load_metadata_json(self, file_path: Path) -> Dict:
-        """Carrega metadados do arquivo metadata.json correspondente."""
-        try:
-            # Verificar diferentes possíveis localizações do metadata.json
-            possible_locations = [
-                file_path.parent / "metadata.json",  # Mesmo diretório
-                Path("samples")
-                / file_path.stem
-                / "metadata.json",  # samples/nome-do-arquivo
-                Path("samples")
-                / file_path.parent.name
-                / "metadata.json",  # samples/diretório-pai
-                Path("samples/edital-001") / "metadata.json",  # Local padrão
-            ]
-
-            if self.verbose:
-                rprint(
-                    f"[dim]Procurando metadata.json em: {[str(p) for p in possible_locations]}[/dim]"
-                )
-
-            for metadata_path in possible_locations:
-                if metadata_path.exists():
-                    if self.verbose:
-                        rprint(
-                            f"[green]Arquivo de metadados encontrado em: {metadata_path}[/green]"
-                        )
-                    with open(metadata_path, "r", encoding="utf-8") as f:
-                        all_metadata = json.load(f)
-
-                    # Procurar metadados específicos para este arquivo
-                    file_name = file_path.name
-
-                    # Se o metadata.json for uma lista de objetos
-                    if isinstance(all_metadata, list):
-                        for item in all_metadata:
-                            # Verificar se este item corresponde ao arquivo atual
-                            if (
-                                item.get("filename") == file_name
-                                or item.get("file") == file_name
-                            ):
-                                return item
-                        # Se não encontrou específico, retornar o primeiro item (se existir)
-                        if all_metadata:
-                            return all_metadata[0]
-
-                    # Se o metadata.json for um dict simples
-                    elif isinstance(all_metadata, dict):
-                        return all_metadata
-
-            return {}
-        except Exception as e:
-            if self.verbose:
-                rprint(f"[red]Erro ao carregar metadata.json: {str(e)}[/red]")
-            return {}
-
-    def extract_metadata(self, text: str, file_path: Optional[Path] = None) -> Dict:
-        """Extrai metadados usando uma combinação de arquivo metadata.json e extração por LLM."""
-        if self.verbose:
-            rprint("[yellow]Iniciando extração de metadados...[/yellow]")
-
-        # Inicializar metadados vazios
-        metadata = {}
-
-        # 1. Primeiro, tentar carregar do metadata.json se tiver um arquivo
-        if file_path:
-            # Verificar se file_path é um objeto Path ou uma string
-            if isinstance(file_path, str):
-                file_path = Path(file_path)
-
-            try:
-                # Tentar encontrar o metadata.json correspondente
-                metadata_from_file = self._load_metadata_json(file_path)
-                if metadata_from_file:
-                    if self.verbose:
-                        rprint(
-                            f"[green]Metadados encontrados em arquivo existente[/green]"
-                        )
-                    metadata.update(metadata_from_file)
-
-                    # Se temos todos os metadados necessários, podemos retornar imediatamente
-                    required_fields = [
-                        "public_notice",
-                        "bid_number",
-                        "process_id",
-                        "agency",
-                        "object",
-                    ]
-
-                    if all(
-                        field in metadata and metadata[field]
-                        for field in required_fields
-                    ):
-                        if self.verbose:
-                            rprint(
-                                f"[green]Todos os metadados necessários encontrados no arquivo[/green]"
-                            )
-                        return metadata
-
-                    if self.verbose:
-                        missing_fields = [
-                            field
-                            for field in required_fields
-                            if field not in metadata or not metadata[field]
-                        ]
-                        if missing_fields:
-                            rprint(
-                                f"[yellow]Campos faltantes que serão extraídos: {', '.join(missing_fields)}[/yellow]"
-                            )
-            except Exception as e:
-                if self.verbose:
-                    rprint(
-                        f"[red]Erro ao processar arquivo de metadados: {str(e)}[/red]"
-                    )
-
-        # 2. Extrair metadados usando agentes
-        if self.verbose:
-            rprint("[yellow]Extraindo metadados com agentes...[/yellow]")
-
-        try:
-            # Limitar o tamanho do texto para extração de metadados
-            truncated_text = text[:5000] if len(text) > 5000 else text
-
-            # Criar tarefas para extração de metadados
-            tasks = []
-            metadata_from_llm = {}
-
-            # Verificar quais agentes estão disponíveis
-            if "identifier_agent" in self.agents:
-                try:
-                    identifier_task = self._create_task(
-                        "identifier_task", truncated_text
-                    )
-
-                    # Verificar e usar o método correto para executar a tarefa
-                    if hasattr(identifier_task, "execute"):
-                        identifier_result = identifier_task.execute()
-                    elif hasattr(identifier_task, "run"):
-                        identifier_result = identifier_task.run()
-                    else:
-                        # Criar uma crew com apenas esta tarefa e executá-la
-                        crew = Crew(
-                            agents=[identifier_task.agent],
-                            tasks=[identifier_task],
-                            verbose=self.verbose,
-                            process=Process.sequential,
-                        )
-                        identifier_result = crew.kickoff()
-
-                    extracted_data = self._extract_json_from_text(identifier_result)
-                    metadata_from_llm.update(extracted_data)
-                    if self.verbose:
-                        rprint(
-                            f"[green]Dados extraídos por identifier_agent: {extracted_data}[/green]"
-                        )
-                except Exception as e:
-                    if self.verbose:
-                        rprint(
-                            f"[red]Erro ao executar identifier_agent: {str(e)}[/red]"
-                        )
-
-            if "organization_agent" in self.agents:
-                try:
-                    org_task = self._create_task("organization_task", truncated_text)
-                    org_result = org_task.execute()
-                    extracted_data = self._extract_json_from_text(org_result)
-                    metadata_from_llm.update(extracted_data)
-                    if self.verbose:
-                        rprint(
-                            f"[green]Dados extraídos por organization_agent: {extracted_data}[/green]"
-                        )
-                except Exception as e:
-                    if self.verbose:
-                        rprint(
-                            f"[red]Erro ao executar organization_agent: {str(e)}[/red]"
-                        )
-
-            if "dates_agent" in self.agents:
-                try:
-                    dates_task = self._create_task("dates_task", truncated_text)
-                    dates_result = dates_task.execute()
-                    extracted_data = self._extract_json_from_text(dates_result)
-                    metadata_from_llm.update(extracted_data)
-                    if self.verbose:
-                        rprint(
-                            f"[green]Dados extraídos por dates_agent: {extracted_data}[/green]"
-                        )
-                except Exception as e:
-                    if self.verbose:
-                        rprint(f"[red]Erro ao executar dates_agent: {str(e)}[/red]")
-
-            if "metadata_agent" in self.agents:
-                try:
-                    subject_task = self._create_task("subject_task", truncated_text)
-                    subject_result = subject_task.execute()
-                    extracted_data = self._extract_json_from_text(subject_result)
-                    metadata_from_llm.update(extracted_data)
-                    if self.verbose:
-                        rprint(
-                            f"[green]Dados extraídos por metadata_agent: {extracted_data}[/green]"
-                        )
-                except Exception as e:
-                    if self.verbose:
-                        rprint(f"[red]Erro ao executar metadata_agent: {str(e)}[/red]")
-
-            # Mesclar os resultados da extração automática com os metadados do arquivo
-            for key, value in metadata_from_llm.items():
-                if key not in metadata or not metadata[key]:
-                    metadata[key] = value
-
-            return metadata
-
-        except Exception as e:
-            if self.verbose:
-                rprint(f"[red]Erro na extração de metadados: {str(e)}[/red]")
-            return metadata  # Retornar o que conseguimos do arquivo
-
-    def generate_summary(self, text: str, summary_type: SummaryType) -> str:
-        """Gera um resumo do documento conforme o tipo solicitado."""
-        try:
-            if self.verbose:
-                rprint(f"[yellow]Gerando resumo {summary_type}...[/yellow]")
-
-            # Limitar o tamanho do texto baseado no tipo de resumo
-            max_text_len = 15000 if summary_type == SummaryType.TECHNICAL else 10000
-            truncated_text = text[:max_text_len] if len(text) > max_text_len else text
-
-            # Criar a tarefa de resumo apropriada
-            if summary_type == SummaryType.EXECUTIVE:
-                if "executive_summary_agent" not in self.agents:
-                    return "Erro: Agente de resumo executivo não encontrado"
-
-                task = self._create_task("executive_summary", truncated_text)
-
-            elif summary_type == SummaryType.TECHNICAL:
-                if "technical_summary_agent" not in self.agents:
-                    return "Erro: Agente de resumo técnico não encontrado"
-
-                task = self._create_task("technical_summary", truncated_text)
-
-            else:
-                return f"Tipo de resumo não suportado: {summary_type}"
-
-            # Executar a tarefa - verificar se tem execute() ou run()
-            if hasattr(task, "execute"):
-                result = task.execute()
-            elif hasattr(task, "run"):
-                result = task.run()
-            else:
-                # Criar uma crew com apenas esta tarefa e executá-la
-                single_task_crew = Crew(
-                    agents=[task.agent],
-                    tasks=[task],
-                    verbose=self.verbose,
-                    process=Process.sequential,
-                )
-                result = single_task_crew.kickoff()
-
-            if self.verbose:
-                rprint(f"[green]Resumo {summary_type} gerado com sucesso[/green]")
-
-            return result
-
-        except Exception as e:
-            if self.verbose:
-                rprint(f"[red]Erro na geração do resumo {summary_type}: {str(e)}[/red]")
-            return f"Erro ao gerar resumo: {str(e)}"
+import json
+
+from .tools.file_tools import SimpleFileReadTool
+from .tools.document_tools import DocumentSearchTool, TableExtractionTool
+from .processors.document import DocumentProcessor
+from .reports.excel import ExcelReportGenerator
+
+# If you want to run a snippet of code before or after the crew starts,
+# you can use the @before_kickoff and @after_kickoff decorators
+# https://docs.crewai.com/concepts/crews#example-crew-class-with-decorators
+
+
+@CrewBase
+class EditalSummarizer:
+    """EditalSummarizer crew otimizado para processamento de editais de licitação"""
+
+    agents: List[BaseAgent]
+    tasks: List[Task]
+
+    # Learn more about YAML configuration files here:
+    # Agents: https://docs.crewai.com/concepts/agents#yaml-configuration-recommended
+    # Tasks: https://docs.crewai.com/concepts/tasks#yaml-configuration-recommended
+
+    # If you would like to add tools to your agents, you can learn more about it here:
+    # https://docs.crewai.com/concepts/agents#agent-tools
+    @agent
+    def metadata_agent(self) -> Agent:
+        return Agent(
+            config=self.agents_config["metadata_agent"],
+            tools=[SimpleFileReadTool(), DocumentSearchTool()],
+            verbose=True,
+            llm_config={
+                "provider": "google",
+                "model": "gemini-pro",
+                "temperature": 0.1,
+            },  # Usar Gemini Pro para metadados
+        )
+
+    @agent
+    def summary_agent(self) -> Agent:
+        return Agent(
+            config=self.agents_config["summary_agent"],
+            tools=[SimpleFileReadTool(), DocumentSearchTool(), TableExtractionTool()],
+            verbose=True,
+            llm_config={
+                "provider": "google",
+                "model": "gemini-pro",
+                "temperature": 0.3,
+            },  # Usar Gemini Pro para resumos
+        )
+
+    @agent
+    def executive_summary_agent(self) -> Agent:
+        return Agent(
+            config=self.agents_config["executive_summary_agent"],
+            tools=[SimpleFileReadTool(), DocumentSearchTool()],
+            verbose=True,
+            llm_config={
+                "provider": "google",
+                "model": "gemini-pro",
+                "temperature": 0.3,
+            },
+        )
+
+    @agent
+    def technical_summary_agent(self) -> Agent:
+        return Agent(
+            config=self.agents_config["technical_summary_agent"],
+            tools=[SimpleFileReadTool(), DocumentSearchTool(), TableExtractionTool()],
+            verbose=True,
+            llm_config={
+                "provider": "google",
+                "model": "gemini-pro",
+                "temperature": 0.3,
+            },
+        )
+
+    @task
+    def metadata_task(self) -> Task:
+        return Task(
+            config=self.tasks_config["metadata_task"],  # type: ignore[index]
+        )
+
+    @task
+    def summary_task(self) -> Task:
+        return Task(
+            config=self.tasks_config["summary_task"],  # type: ignore[index]
+        )
+
+    @crew
+    def crew(self) -> Crew:
+        """Define the crew for processing editais."""
+        return Crew(
+            agents=[
+                self.metadata_agent(),
+                self.summary_agent(),
+            ],
+            tasks=[
+                self.metadata_task(),
+                self.summary_task(),
+            ],
+            verbose=True,
+            process=Process.sequential,  # Sequencial para controle
+        )
 
     def process_document(
         self,
-        text: str,
-        summary_types: List[SummaryType] = None,
-        file_path: Optional[Path] = None,
-    ) -> Dict:
-        """Processa um documento e gera todos os resumos solicitados."""
-        if summary_types is None:
-            summary_types = [SummaryType.EXECUTIVE, SummaryType.TECHNICAL]
+        document_path: str,
+        output_file: str,
+        verbose: bool = False,
+        ignore_metadata: bool = False,
+    ) -> Dict[str, Any]:
+        """
+        Processa um documento ou diretório de documentos.
 
-        # Limitar o tamanho do texto desde o início
-        max_text_length = 20000
-        if len(text) > max_text_length:
-            if self.verbose:
-                rprint(
-                    f"[dim]Texto completo truncado de {len(text)} para {max_text_length} caracteres[/dim]"
-                )
-            text = text[:max_text_length]
+        Args:
+            document_path: Caminho para o documento ou diretório
+            output_file: Arquivo de saída (Excel)
+            verbose: Se True, exibe logs detalhados
+            ignore_metadata: Se True, ignora os metadados existentes
 
-        # Extrai metadados
-        metadata = self.extract_metadata(text, file_path=file_path)
+        Returns:
+            Dicionário com resultados do processamento
+        """
+        # Processar o documento/diretório
+        processor = DocumentProcessor()
+        document_data = processor.process_path(document_path)
 
-        # Gera resumos para cada tipo solicitado
-        summaries = {}
-        for summary_type in summary_types:
-            summaries[str(summary_type)] = self.generate_summary(text, summary_type)
+        results = []
 
-        return {"metadata": metadata, "summaries": summaries}
+        # Para cada documento encontrado
+        documents = document_data.get("documents", [document_data])
+        for doc in documents:
+            document_content = doc.get("content", "")
+            has_metadata = doc.get("has_metadata_file", False) and not ignore_metadata
+            existing_metadata = doc.get("metadata", {})
+            file_path = doc.get("file_path", "")
+
+            if verbose:
+                print(f"Processando documento: {doc.get('file_name', 'unknown')}")
+                print(f"Tamanho do conteúdo: {len(document_content)} caracteres")
+                if has_metadata:
+                    print(f"Usando metadados do arquivo metadata.json")
+
+            # Se já temos os metadados, só precisamos dos resumos
+            if has_metadata and existing_metadata:
+                if verbose:
+                    print(
+                        "Metadados encontrados no arquivo JSON, pulando extração de metadados"
+                    )
+
+                # Preparar inputs simplificados para resumos
+                inputs = {
+                    "document_text": document_content,
+                    "metadata": json.dumps(existing_metadata),
+                    "file_path": file_path,
+                }
+
+                # Executar o crew apenas para gerar resumos
+                try:
+                    # Limitamos o tamanho do conteúdo para evitar exceder o contexto
+                    max_content_length = 4000
+                    truncated_content = document_content[:max_content_length]
+                    if len(document_content) > max_content_length:
+                        truncated_content += (
+                            f"\n\n[Texto truncado em {max_content_length} caracteres]"
+                        )
+
+                    # Usar o summary_agent em vez de executive_summary_agent e technical_summary_agent
+                    summary_task = Task(
+                        description=f"""
+Com base no documento do edital e nos metadados fornecidos, crie:
+
+1. Um RESUMO EXECUTIVO conciso (máximo 10.000 caracteres) destacando os 
+   pontos-chave para tomadores de decisão, incluindo objeto, prazos, valores 
+   e requisitos principais.
+   
+2. Um RESUMO TÉCNICO detalhado (máximo 15.000 caracteres) com as especificações
+   técnicas relevantes, requisitos, condições de entrega/execução e outras
+   informações técnicas importantes.
+
+CONTEÚDO DO DOCUMENTO:
+{truncated_content}
+
+METADADOS:
+{json.dumps(existing_metadata, indent=2)}
+
+IMPORTANTE: Seu resultado DEVE seguir EXATAMENTE este formato:
+
+# RESUMO EXECUTIVO
+(conteúdo do resumo executivo aqui)
+
+# RESUMO TÉCNICO
+(conteúdo do resumo técnico aqui)
+""",
+                        expected_output="Um documento markdown com as duas seções de resumo claramente separadas.",
+                        agent=self.summary_agent(),
+                    )
+
+                    # Criamos um crew menor apenas com o agente de resumo
+                    crew = Crew(
+                        agents=[self.summary_agent()],
+                        tasks=[summary_task],
+                        verbose=verbose,
+                        process=Process.sequential,
+                    )
+
+                    crew_result = crew.kickoff(inputs=inputs)
+
+                    # Processar o resultado para extrair os resumos
+                    summary_output = ""
+
+                    # Adicionar log para entender o tipo e a estrutura do crew_result
+                    print(f"Tipo do crew_result: {type(crew_result)}")
+                    print(f"Atributos disponíveis: {dir(crew_result)}")
+
+                    # Tentar diferentes formas de acessar o output
+                    try:
+                        # Tentar acessar através do atributo tasks_output
+                        if hasattr(crew_result, "tasks_output"):
+                            print("Acessando via tasks_output")
+                            task_output = crew_result.tasks_output[0]
+                            print(f"Tipo do task_output: {type(task_output)}")
+                            print(f"Atributos do task_output: {dir(task_output)}")
+
+                            # Tentar vários atributos possíveis
+                            if hasattr(task_output, "result"):
+                                summary_output = task_output.result
+                            elif hasattr(task_output, "content"):
+                                summary_output = task_output.content
+                            elif hasattr(task_output, "task_output"):
+                                summary_output = task_output.task_output
+                            elif hasattr(task_output, "final_answer"):
+                                summary_output = task_output.final_answer
+                            elif hasattr(task_output, "value"):
+                                summary_output = task_output.value
+                            else:
+                                # Último recurso - converter para string
+                                summary_output = str(task_output)
+                    except Exception as e:
+                        print(f"Erro ao acessar o output: {str(e)}")
+                        summary_output = ""
+
+                    print(f"RESUMO EXTRAÍDO: {summary_output[:100]}...")
+
+                    # Separar os resumos
+                    executive_summary = ""
+                    technical_summary = ""
+                    if (
+                        "# RESUMO EXECUTIVO" in summary_output
+                        and "# RESUMO TÉCNICO" in summary_output
+                    ):
+                        parts = summary_output.split("# RESUMO TÉCNICO", 1)
+                        executive_part = parts[0].strip()
+                        technical_part = parts[1].strip() if len(parts) > 1 else ""
+
+                        # Remover cabeçalho do resumo executivo
+                        executive_summary = executive_part.replace(
+                            "# RESUMO EXECUTIVO", ""
+                        ).strip()
+                        technical_summary = technical_part.strip()
+
+                        print(
+                            f"RESUMO EXECUTIVO EXTRAÍDO: {executive_summary[:100]}..."
+                        )
+                        print(f"RESUMO TÉCNICO EXTRAÍDO: {technical_summary[:100]}...")
+                    else:
+                        print(
+                            "AVISO: Não foi possível separar os resumos executivo e técnico."
+                        )
+
+                    # Adicionar resultados
+                    result = {
+                        "file_name": doc.get("file_name", ""),
+                        "file_path": file_path,
+                        "metadata": existing_metadata,
+                        "executive_summary": executive_summary,
+                        "technical_summary": technical_summary,
+                    }
+
+                    results.append(result)
+
+                except Exception as e:
+                    if verbose:
+                        print(f"Erro ao processar resumos: {str(e)}")
+                    results.append(
+                        {
+                            "file_name": doc.get("file_name", ""),
+                            "file_path": file_path,
+                            "metadata": existing_metadata,
+                            "error": str(e),
+                        }
+                    )
+            else:
+                # Processamento completo com extração de metadados
+                if verbose:
+                    print(
+                        "Nenhum arquivo de metadados encontrado, extraindo metadados via IA"
+                    )
+
+                # Preparar inputs para o processamento completo
+                inputs = {
+                    "document_content": document_content,
+                    "identifier_task": {"document_text": document_content},
+                    "organization_task": {"document_text": document_content},
+                    "subject_task": {"document_text": document_content},
+                    "executive_summary": {"document_text": document_content},
+                    "technical_summary": {"document_text": document_content},
+                }
+
+                # Executar o crew completo
+                try:
+                    crew_result = self.crew().kickoff(inputs=inputs)
+
+                    # Consolidar metadados
+                    metadata = {}
+                    for task_result in crew_result:
+                        if task_result.task_id == "metadata_task":
+                            metadata = task_result.output
+
+                    # Extrair resumos do resultado da tarefa de resumo
+                    summary_output = ""
+                    for task_result in crew_result:
+                        if task_result.task_id == "summary_task":
+                            summary_output = task_result.output
+
+                    # Separar os resumos
+                    executive_summary = ""
+                    technical_summary = ""
+                    if (
+                        "# RESUMO EXECUTIVO" in summary_output
+                        and "# RESUMO TÉCNICO" in summary_output
+                    ):
+                        parts = summary_output.split("# RESUMO TÉCNICO", 1)
+                        executive_part = parts[0].strip()
+                        technical_part = parts[1].strip() if len(parts) > 1 else ""
+
+                        # Remover cabeçalho do resumo executivo
+                        executive_summary = executive_part.replace(
+                            "# RESUMO EXECUTIVO", ""
+                        ).strip()
+                        technical_summary = technical_part.strip()
+
+                    # Adicionar resultados
+                    result = {
+                        "file_name": doc.get("file_name", ""),
+                        "file_path": doc.get("file_path", ""),
+                        "metadata": metadata,
+                        "executive_summary": executive_summary,
+                        "technical_summary": technical_summary,
+                    }
+
+                    results.append(result)
+
+                except Exception as e:
+                    if verbose:
+                        print(f"Erro ao processar documento: {str(e)}")
+                    results.append(
+                        {
+                            "file_name": doc.get("file_name", ""),
+                            "file_path": doc.get("file_path", ""),
+                            "error": str(e),
+                        }
+                    )
+
+        # Gerar relatório Excel
+        report_generator = ExcelReportGenerator()
+        report_generator.generate_report(results, output_file)
+
+        if verbose:
+            print(f"Relatório gerado em: {output_file}")
+
+        return {
+            "document_path": document_path,
+            "output_file": output_file,
+            "documents_processed": len(results),
+            "results": results,
+        }

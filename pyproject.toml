@@ -1,39 +1,32 @@
 [project]
 name = "edital_summarizer"
-version = "0.1.0"
-description = "edital-summarizer using crewAI"
-authors = [{ name = "Thiago Martins", email = "thiago.fmartins@outlook.com" }]
-requires-python = ">=3.10,<3.13"
+version = "0.2.0"
+description = "Processador de editais utilizando a CrewAI"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [{ name = "Thiago Martins", email = "t.martins@samsung.com" }]
 dependencies = [
-    "crewai[tools]",
-    "PyPDF2",
-    "pandas",
-    "openpyxl",
-    "python-dotenv",
-    "typer[all]",
-    "pyyaml",
-    "rich",
-    "google-generativeai",
-    "pydantic>=2.0.0",
-    "langchain",
-    "langchain-google-genai",
-    "langchain-community",
-    "faiss-cpu",
+    "crewai>=0.28.0",
+    "langchain>=0.1.0",
+    "python-dotenv>=1.0.0",
+    "openai>=1.1.0",
+    "anthropic>=0.5.0",
+    "openpyxl>=3.1.2",
+    "pypdf>=3.15.1",
+    "pysbd>=0.3.4",
+    "docx2txt>=0.8",
+    "google-generativeai>=0.3.0", # Para o Gemini
+    "litellm>=1.7.0",             # Para integração de vários providers com CrewAI
+    "pandas>=2.0.0",
 ]
 
-[project.optional-dependencies]
-dev = ["pytest>=7.0", "black", "isort", "flake8", "mypy", "python-dotenv"]
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project.scripts]
-edital_summarizer = "edital_summarizer.main:run"
-run_crew = "edital_summarizer.main:run"
-train = "edital_summarizer.main:train"
-replay = "edital_summarizer.main:replay"
-test = "edital_summarizer.main:test"
+edital-summarizer = "edital_summarizer.main:run"
 
-[build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
-
-[tool.crewai]
-type = "crew"
+[tool.ruff]
+line-length = 88

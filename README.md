@@ -1,85 +1,54 @@
-# RPA de Processamento e Resumo de Editais
+# EditalSummarizer Crew
 
-## Visão Geral
+Welcome to the EditalSummarizer Crew project, powered by [crewAI](https://crewai.com). This template is designed to help you set up a multi-agent AI system with ease, leveraging the powerful and flexible framework provided by crewAI. Our goal is to enable your agents to collaborate effectively on complex tasks, maximizing their collective intelligence and capabilities.
 
-Este projeto é um aplicativo Python que monitora uma pasta contendo editais (descompactados ou em ZIP), extrai texto (PDF, MD, TXT, ZIPs aninhados), aplica agentes CrewAI para:
+## Installation
 
-1. Extrair metadados estruturados
-2. Gerar diferentes tipos de resumo (executivo, técnico, etc.)
-3. Referenciar o diretório de origem de cada edital
+Ensure you have Python >=3.10 <3.13 installed on your system. This project uses [UV](https://docs.astral.sh/uv/) for dependency management and package handling, offering a seamless setup and execution experience.
 
-Como saída, gera um relatório Excel com colunas para:
-
-* **Origem**: caminho do ZIP ou diretório onde está o edital
-* **Metadados**: JSON com título, órgão, datas, objeto, etc.
-* **Resumo Executivo**
-* **Resumo Técnico**
-
-Uma flag `--verbose` permite exibir logs de execução (incluindo chamadas ao CrewAI).
-
-## Funcionalidades Principais
-
-* Processamento recursivo de arquivos ZIP e diretórios
-* Extração de texto de PDFs (e OCR, se configurado) e arquivos `.md`/`.txt`
-* Agentes CrewAI pré-configurados para:
-
-  * Extração de metadados
-  * Geração de resumos customizados
-* Geração de relatório em Excel (`.xlsx`) com todas as colunas necessárias
-* Modo silencioso ou verboso via CLI
-
-## Requisitos
-
-* Python 3.10+
-* API Key do CrewAI disponível em variável de ambiente `CREWAI_API_KEY`
-* Bibliotecas:
-
-  ```bash
-  # Instale o uv se ainda não tiver
-  pip install uv
-
-  # Instale as dependências usando uv
-  uv pip install -r requirements.txt
-  ```
-
-## Estrutura do Projeto
-
-```
-├── main.py                # Script principal (entry point)
-├── pipeline/              # Módulos de extração e resumo
-│   ├── extractor.py       # Funções de leitura de ZIPs e PDFs
-│   └── summarizer.py      # Configuração de agentes CrewAI
-├── requirements.txt       # Dependências do projeto
-└── README.md              # Este arquivo de documentação
-```
-
-## Configuração
-
-1. Defina sua chave de API CrewAI:
-
-   ```bash
-   export CREWAI_API_KEY="<sua_chave_aqui>"
-   ```
-2. Ajuste, se necessário, os `agent_id` e `prompt_templates` em `pipeline/summarizer.py`.
-
-## Uso
+First, if you haven't already, install uv:
 
 ```bash
-python main.py /caminho/para/edital_descompactado \
-  --output relatório.xlsx \
-  [--summary-types executivo,técnico] \
-  [--verbose]
+pip install uv
 ```
 
-* `--output`: arquivo Excel de saída (padrão `report.xlsx`)
-* `--summary-types`: lista de tipos de resumo separados por vírgula
-* `--verbose`: exibe logs detalhados
+Next, navigate to your project directory and install the dependencies:
 
-## Exemplo
+(Optional) Lock the dependencies and install them by using the CLI command:
+```bash
+crewai install
+```
+### Customizing
+
+**Add your `OPENAI_API_KEY` into the `.env` file**
+
+- Modify `src/edital_summarizer/config/agents.yaml` to define your agents
+- Modify `src/edital_summarizer/config/tasks.yaml` to define your tasks
+- Modify `src/edital_summarizer/crew.py` to add your own logic, tools and specific args
+- Modify `src/edital_summarizer/main.py` to add custom inputs for your agents and tasks
+
+## Running the Project
+
+To kickstart your crew of AI agents and begin task execution, run this from the root folder of your project:
 
 ```bash
-python main.py ./downloads/descompactados \
-  --output resumos_editais.xlsx \
-  --summary-types executivo,técnico \
-  --verbose
+$ crewai run
 ```
+
+This command initializes the edital-summarizer Crew, assembling the agents and assigning them tasks as defined in your configuration.
+
+This example, unmodified, will run the create a `report.md` file with the output of a research on LLMs in the root folder.
+
+## Understanding Your Crew
+
+The edital-summarizer Crew is composed of multiple AI agents, each with unique roles, goals, and tools. These agents collaborate on a series of tasks, defined in `config/tasks.yaml`, leveraging their collective skills to achieve complex objectives. The `config/agents.yaml` file outlines the capabilities and configurations of each agent in your crew.
+
+## Support
+
+For support, questions, or feedback regarding the EditalSummarizer Crew or crewAI.
+- Visit our [documentation](https://docs.crewai.com)
+- Reach out to us through our [GitHub repository](https://github.com/joaomdmoura/crewai)
+- [Join our Discord](https://discord.com/invite/X4JWnZnxPb)
+- [Chat with our docs](https://chatg.pt/DWjSBZn)
+
+Let's create wonders together with the power and simplicity of crewAI.
