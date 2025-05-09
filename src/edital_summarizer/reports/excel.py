@@ -2,6 +2,8 @@ import pandas as pd
 from typing import List, Dict, Any
 import os
 import json
+from openpyxl import Workbook
+from openpyxl.utils import get_column_letter
 
 
 class ExcelReportGenerator:
@@ -11,123 +13,127 @@ class ExcelReportGenerator:
 
     def generate_report(self, results: List[Dict[str, Any]], output_file: str) -> str:
         """
-        Gera um relatório Excel com os resultados do processamento de editais.
+        Gera um relatório Excel com os resultados do processamento.
 
         Args:
-            results: Lista de resultados do processamento
-            output_file: Caminho para o arquivo de saída
+            results: Lista de dicionários com os resultados do processamento
+            output_file: Caminho para o arquivo Excel de saída
 
         Returns:
-            Caminho para o arquivo gerado
+            Caminho do arquivo Excel gerado
         """
-        # Criar diretório de saída se não existir
-        output_dir = os.path.dirname(output_file)
-        if output_dir and not os.path.exists(output_dir):
-            os.makedirs(output_dir)
+        # Criar um novo workbook
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Resumo de Editais"
 
-        # Preparar dados para o DataFrame
-        data = []
+        # Definir cabeçalhos
+        headers = [
+            "Nome do Arquivo",
+            "Tipo do Documento",
+            "Propósito",
+            "Número do Edital",
+            "Número do Processo",
+            "Número da Licitação",
+            "Órgão",
+            "Objeto",
+            "Telefone",
+            "Website",
+            "Local",
+            "Resumo Executivo",
+            "Resumo Técnico",
+        ]
+
+        # Adicionar cabeçalhos
+        for col, header in enumerate(headers, 1):
+            ws.cell(row=1, column=col, value=header)
+
+        # Adicionar dados
         for result in results:
-            # Extrair metadados (se existirem)
+            print("\n=== DEBUG: Processando resultado para Excel ===")
+            print(f"Tipo do resultado: {type(result)}")
+            print(f"Chaves disponíveis: {result.keys()}")
+            print(f"Conteúdo do resultado: {result}")
+
+            # Extrair metadados
             metadata = result.get("metadata", {})
-            if isinstance(metadata, str):
-                try:
-                    metadata = json.loads(metadata)
-                except:
-                    metadata = {"error": "Formato de metadados inválido"}
+            identifier = metadata.get("identifier", {})
+            organization = metadata.get("organization", {})
+            subject = metadata.get("subject", {})
 
-            # Extrair informações de identificação
-            identifier_info = metadata.get("identifier", {})
-            if isinstance(identifier_info, str):
-                try:
-                    identifier_info = json.loads(identifier_info)
-                except:
-                    identifier_info = {}
+            print("\n=== DEBUG: Metadados extraídos ===")
+            print(f"Metadata: {metadata}")
+            print(f"Identifier: {identifier}")
+            print(f"Organization: {organization}")
+            print(f"Subject: {subject}")
 
-            # Extrair informações da organização
-            org_info = metadata.get("organization", {})
-            if isinstance(org_info, str):
-                try:
-                    org_info = json.loads(org_info)
-                except:
-                    org_info = {}
-
-            # Extrair informações do assunto
-            subject_info = metadata.get("subject", {})
-            if isinstance(subject_info, str):
-                try:
-                    subject_info = json.loads(subject_info)
-                except:
-                    subject_info = {}
-
-            # Extrair resumos
-            executive_summary = result.get("executive_summary", "")
-            technical_summary = result.get("technical_summary", "")
-
-            # Criar entrada para o DataFrame
-            entry = {
-                "Arquivo": result.get("file_name", ""),
-                "Caminho": result.get("file_path", ""),
-                "Título": subject_info.get("title", ""),
-                "Objeto": subject_info.get("object", ""),
-                "Órgão": org_info.get("organization", ""),
-                "Número do Edital": identifier_info.get("public_notice", ""),
-                "Número do Processo": identifier_info.get("process_id", ""),
-                "Número da Licitação": identifier_info.get("bid_number", ""),
-                "Telefone": org_info.get("phone", ""),
-                "Website": org_info.get("website", ""),
-                "Localização": org_info.get("location", ""),
-                "Datas": str(subject_info.get("dates", "")),
-                "Resumo Executivo": executive_summary,
-                "Resumo Técnico": technical_summary,
-                "Erro": result.get("error", ""),
-            }
-            data.append(entry)
-
-        # Criar DataFrame e salvar como Excel
-        df = pd.DataFrame(data)
-
-        # Salvar como Excel
-        with pd.ExcelWriter(output_file, engine="openpyxl") as writer:
-            # Planilha principal com todos os dados
-            df.to_excel(writer, sheet_name="Relatório Completo", index=False)
-
-            # Planilha separada só com metadados
-            metadata_cols = [
-                "Arquivo",
-                "Título",
-                "Objeto",
-                "Órgão",
-                "Número do Edital",
-                "Número do Processo",
-                "Número da Licitação",
-                "Telefone",
-                "Website",
-                "Localização",
-                "Datas",
+            # Preparar dados da linha
+            row_data = [
+                result.get("file_name", ""),
+                result.get("document_type", "Não identificado"),
+                result.get("document_purpose", "Não identificado"),
+                metadata.get("identifier", {}).get("public_notice", ""),
+                metadata.get("identifier", {}).get("process_id", ""),
+                metadata.get("identifier", {}).get("bid_number", ""),
+                metadata.get("organization", {}).get("organization", ""),
+                metadata.get("subject", {}).get("object", ""),
+                metadata.get("organization", {}).get("phone", ""),
+                metadata.get("organization", {}).get("website", ""),
+                metadata.get("organization", {}).get("location", ""),
             ]
-            df[metadata_cols].to_excel(writer, sheet_name="Metadados", index=False)
 
-            # Planilha para cada documento com seu resumo
-            for i, row in df.iterrows():
-                sheet_name = f"Doc_{i+1}"
-                pd.DataFrame(
-                    {
-                        "Atributo": [
-                            "Arquivo",
-                            "Título",
-                            "Objeto",
-                            "Resumo Executivo",
-                            "Resumo Técnico",
-                        ],
-                        "Valor": [
-                            row["Arquivo"],
-                            row["Título"],
-                            row["Objeto"],
-                            row["Resumo Executivo"],
-                            row["Resumo Técnico"],
-                        ],
-                    }
-                ).to_excel(writer, sheet_name=sheet_name, index=False)
+            print("\n=== DEBUG: Dados da linha preparados ===")
+            print(f"Row data: {row_data}")
+
+            # Formatar os resumos
+            executive_summary = result.get('executive_summary', '')
+            technical_summary = result.get('technical_summary', '')
+
+            # Remover texto em inglês do início do resumo executivo
+            if executive_summary.lower().startswith('given the'):
+                executive_summary = executive_summary[executive_summary.find('\n'):].strip()
+
+            # Limpar formatação markdown e caracteres especiais
+            executive_summary = executive_summary.replace('#', '').replace('*', '').strip()
+            technical_summary = technical_summary.replace('#', '').replace('*', '').strip()
+
+            # Remover cabeçalhos redundantes
+            executive_summary = executive_summary.replace('RESUMO EXECUTIVO:', '').replace('RESUMO EXECUTIVO', '').strip()
+            technical_summary = technical_summary.replace('RESUMO TÉCNICO:', '').replace('RESUMO TÉCNICO', '').strip()
+
+            # Garantir que os resumos estejam separados
+            if executive_summary and technical_summary:
+                executive_summary = f"RESUMO EXECUTIVO:\n{executive_summary}"
+                technical_summary = f"\n\nRESUMO TÉCNICO:\n{technical_summary}"
+
+            # Preparar os dados da linha
+            row_data.extend([executive_summary, technical_summary])
+
+            # Adicionar linha ao worksheet
+            ws.append(row_data)
+
+            # Ajustar largura das colunas
+            for idx, col in enumerate(ws.columns, 1):
+                max_length = 0
+                column = get_column_letter(idx)
+                for cell in col:
+                    try:
+                        if len(str(cell.value)) > max_length:
+                            max_length = len(str(cell.value))
+                    except:
+                        pass
+                adjusted_width = (max_length + 2)
+                ws.column_dimensions[column].width = min(adjusted_width, 100)  # Limitar largura máxima
+
+        # Salvar o arquivo
+        wb.save(output_file)
+
+        # Imprimir o conteúdo do relatório
+        print("\nConteúdo do Relatório Excel:")
+        print("-" * 100)
+        print("\t".join(headers))
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            print("\t".join(str(cell) if cell is not None else "" for cell in row))
+        print("-" * 100)
 
         return output_file
