@@ -5,6 +5,7 @@ import argparse
 import warnings
 from pathlib import Path
 from dotenv import load_dotenv
+from typing import Dict, Any
 
 # Carregando variáveis de ambiente diretamente
 load_dotenv()
@@ -69,6 +70,12 @@ def parse_args():
         "--ignore-metadata",
         action="store_true",
         help="Ignorar arquivo metadata.json e sempre extrair metadados usando IA",
+    )
+
+    parser.add_argument(
+        "--full-content",
+        action="store_true",
+        help="Processar o conteúdo completo do documento (sem truncamento). Por padrão, o conteúdo é limitado para otimizar custos.",
     )
 
     return parser.parse_args()
@@ -185,6 +192,7 @@ def run():
             output_file=output_file,
             verbose=args.verbose,
             ignore_metadata=args.ignore_metadata,
+            full_content=args.full_content,
         )
 
         print(f"\nProcessamento concluído com sucesso!")

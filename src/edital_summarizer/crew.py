@@ -36,8 +36,18 @@ class EditalSummarizer:
             verbose=True,
             llm_config={
                 "provider": "google",
-                "model": "gemini-pro",
+                "model": "gemini/gemini-pro",
+                "api_key": os.getenv("GOOGLE_API_KEY"),
                 "temperature": 0.1,
+                "max_retries": 2,
+                "retry_delay": 5,  # 5 segundos entre retries para respeitar 15 RPM
+                "timeout": 30,
+                "max_tokens": 500,  # Limitar tokens para metadados
+                "rate_limit": {
+                    "requests_per_minute": 15,
+                    "tokens_per_minute": 1000000,
+                    "requests_per_day": 1500
+                }
             },  # Usar Gemini Pro para metadados
         )
 
@@ -49,8 +59,17 @@ class EditalSummarizer:
             verbose=True,
             llm_config={
                 "provider": "google",
-                "model": "gemini-pro",
+                "model": "gemini/gemini-pro",
+                "api_key": os.getenv("GOOGLE_API_KEY"),
                 "temperature": 0.3,
+                "max_retries": 2,
+                "retry_delay": 5,
+                "timeout": 60,
+                "rate_limit": {
+                    "requests_per_minute": 15,
+                    "tokens_per_minute": 1000000,
+                    "requests_per_day": 1500
+                }
             },  # Usar Gemini Pro para resumos
         )
 
@@ -62,8 +81,17 @@ class EditalSummarizer:
             verbose=True,
             llm_config={
                 "provider": "google",
-                "model": "gemini-pro",
+                "model": "gemini/gemini-pro",
+                "api_key": os.getenv("GOOGLE_API_KEY"),
                 "temperature": 0.3,
+                "max_retries": 2,
+                "retry_delay": 5,
+                "timeout": 60,
+                "rate_limit": {
+                    "requests_per_minute": 15,
+                    "tokens_per_minute": 1000000,
+                    "requests_per_day": 1500
+                }
             },
         )
 
@@ -75,8 +103,17 @@ class EditalSummarizer:
             verbose=True,
             llm_config={
                 "provider": "google",
-                "model": "gemini-pro",
+                "model": "gemini/gemini-pro",
+                "api_key": os.getenv("GOOGLE_API_KEY"),
                 "temperature": 0.3,
+                "max_retries": 2,
+                "retry_delay": 5,
+                "timeout": 60,
+                "rate_limit": {
+                    "requests_per_minute": 15,
+                    "tokens_per_minute": 1000000,
+                    "requests_per_day": 1500
+                }
             },
         )
 
@@ -114,6 +151,7 @@ class EditalSummarizer:
         output_file: str,
         verbose: bool = False,
         ignore_metadata: bool = False,
+        full_content: bool = False,
     ) -> Dict[str, Any]:
         """
         Processa um documento ou diretório de documentos.
@@ -123,6 +161,7 @@ class EditalSummarizer:
             output_file: Arquivo de saída (Excel)
             verbose: Se True, exibe logs detalhados
             ignore_metadata: Se True, ignora os metadados existentes
+            full_content: Se True, processa o conteúdo completo do documento
 
         Returns:
             Dicionário com resultados do processamento
@@ -146,6 +185,10 @@ class EditalSummarizer:
                 print(f"Tamanho do conteúdo: {len(document_content)} caracteres")
                 if has_metadata:
                     print(f"Usando metadados do arquivo metadata.json")
+                if not full_content:
+                    print("Modo de processamento: Conteúdo limitado (otimizado para testes)")
+                else:
+                    print("Modo de processamento: Conteúdo completo")
 
             # Se já temos os metadados, só precisamos dos resumos
             if has_metadata and existing_metadata:
@@ -164,9 +207,10 @@ class EditalSummarizer:
                 # Executar o crew apenas para gerar resumos
                 try:
                     # Limitamos o tamanho do conteúdo para evitar exceder o contexto
-                    max_content_length = 4000
-                    truncated_content = document_content[:max_content_length]
-                    if len(document_content) > max_content_length:
+                    max_content_length = None if full_content else 4000
+                    truncated_content = document_content
+                    if not full_content and len(document_content) > max_content_length:
+                        truncated_content = document_content[:max_content_length]
                         truncated_content += (
                             f"\n\n[Texto truncado em {max_content_length} caracteres]"
                         )
