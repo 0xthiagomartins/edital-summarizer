@@ -52,3 +52,53 @@ For support, questions, or feedback regarding the EditalSummarizer Crew or crewA
 - [Chat with our docs](https://chatg.pt/DWjSBZn)
 
 Let's create wonders together with the power and simplicity of crewAI.
+
+## Processamento Rápido via CMD
+
+Para facilitar o processamento dos editais via linha de comando do Windows, foi criado um script batch que automatiza a execução no WSL Ubuntu.
+
+### Pré-requisitos
+- Windows 10 ou superior
+- WSL Ubuntu instalado
+- Python e dependências instaladas no WSL Ubuntu
+
+### Como Usar
+
+1. Abra o CMD (Prompt de Comando)
+2. Navegue até o diretório do projeto
+3. Execute o comando:
+
+```bash
+# Uso básico (arquivo de saída padrão: rel.xlsx)
+process_edital.bat samples/edital-001
+
+# Especificando arquivo de saída personalizado
+process_edital.bat samples/edital-001 meu_relatorio.xlsx
+```
+
+### Parâmetros
+- Primeiro parâmetro: Caminho do edital a ser processado
+- Segundo parâmetro (opcional): Nome do arquivo de saída (padrão: rel.xlsx)
+
+### Exemplos
+
+```bash
+# Processar edital com nome de saída padrão
+process_edital.bat samples/edital-001
+
+# Processar edital com nome de saída personalizado
+process_edital.bat samples/edital-001 relatorio_final.xlsx
+
+# Processar edital em subdiretório
+process_edital.bat samples/outros/editais/edital-002
+```
+
+O script irá:
+1. Verificar os parâmetros fornecidos
+2. Executar o processamento no WSL Ubuntu
+3. Gerar o arquivo Excel com os resultados
+4. Mostrar mensagem de sucesso ou erro
+
+
+
+'C:\Users\SDS\Documents\edital-summarizer\process_edital.bat C:\Users\SDS\Documents\edital-summarizer\samples\edital-002 C:\Users\SDS\Documents\edital-summarizer\meu_relatorio.xlsx'

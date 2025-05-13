@@ -1,7 +1,7 @@
 from crewai import Agent, Crew, Process, Task
 from crewai.project import CrewBase, agent, crew, task
 from crewai.agents.agent_builder.base_agent import BaseAgent
-from typing import List, Dict, Any, Optional, Union
+from typing import List, Dict, Any
 import os
 import json
 
@@ -9,11 +9,15 @@ from .tools.file_tools import SimpleFileReadTool
 from .tools.document_tools import DocumentSearchTool, TableExtractionTool
 from .processors.document import DocumentProcessor
 from .reports.excel import ExcelReportGenerator
+from .config.agents import get_agents
+from .config.tasks import get_tasks
+from .utils.logger import get_logger
 
 # If you want to run a snippet of code before or after the crew starts,
 # you can use the @before_kickoff and @after_kickoff decorators
 # https://docs.crewai.com/concepts/crews#example-crew-class-with-decorators
 
+logger = get_logger(__name__)
 
 @CrewBase
 class EditalSummarizer:
@@ -101,12 +105,14 @@ class EditalSummarizer:
     def metadata_task(self) -> Task:
         return Task(
             config=self.tasks_config["metadata_task"],  # type: ignore[index]
+            expected_output="JSON com metadados extraídos do documento",
         )
 
     @task
     def summary_task(self) -> Task:
         return Task(
             config=self.tasks_config["summary_task"],  # type: ignore[index]
+            expected_output="Resumo executivo do documento em português",
         )
 
     @crew
@@ -556,3 +562,133 @@ IMPORTANTE:
             "documents_processed": len(results),
             "results": results,
         }
+
+    def __init__(self, verbose: bool = False):
+        self.verbose = verbose
+        self.agents_config = get_agents()
+        self.tasks_config = get_tasks()
+
+    def kickoff(self, edital_path: str, target: str) -> Dict[str, Any]:
+        """Processa o edital e retorna um dicionário com os resultados."""
+        try:
+            # Cria o agente de verificação de target
+            target_agent = Agent(
+                role="Analista de Target",
+                goal="Verificar se o documento é relevante para o target especificado",
+                backstory="""Você é um especialista em análise de documentos.
+                Sua função é determinar se o documento é relevante para o target especificado.""",
+                verbose=self.verbose
+            )
+
+            # Cria a task de verificação de target
+            target_task = Task(
+                description=f"""Analise o documento e determine se ele é relevante para o target: {target}
+
+                O target pode incluir uma descrição entre parênteses. Por exemplo:
+                - Se o target for "RPA (Automação de Processos Robotizados)", você deve verificar se o documento
+                  menciona RPA, automação de processos, processos robotizados ou termos relacionados.
+                - Se o target for "Tablet (Dispositivo móvel)", você deve verificar se o documento
+                  menciona tablets, dispositivos móveis ou termos relacionados.
+
+                Considere tanto o termo principal quanto a descrição entre parênteses ao fazer a análise.
+
+                Retorne apenas 'True' se o documento for relevante para o target ou 'False' se não for.""",
+                expected_output="True ou False indicando se o documento é relevante para o target",
+                agent=target_agent
+            )
+
+            # Cria a crew para verificação de target
+            target_crew = Crew(
+                agents=[target_agent],
+                tasks=[target_task],
+                verbose=self.verbose
+            )
+
+            # Verifica o target
+            target_result = target_crew.kickoff()
+            
+            # Processa o resultado da crew
+            target_match = False
+            if isinstance(target_result, str):
+                target_match = target_result.strip().lower() == 'true'
+            else:
+                # Se for um objeto CrewOutput, tenta extrair o resultado
+                try:
+                    result_str = str(target_result)
+                    target_match = result_str.strip().lower() == 'true'
+                except Exception as e:
+                    logger.error(f"Erro ao processar resultado da crew: {str(e)}")
+                    target_match = False
+
+            # Se não houver match, retorna imediatamente
+            if not target_match:
+                return {
+                    "target_match": False,
+                    "summary": "",
+                    "metadata": {}
+                }
+
+            # Se houver match, continua com o processamento normal
+            # Cria os agentes e tasks para o processamento completo
+            metadata_agent = Agent(
+                config=self.agents_config["metadata_agent"],
+                verbose=self.verbose
+            )
+
+            summary_agent = Agent(
+                config=self.agents_config["summary_agent"],
+                verbose=self.verbose
+            )
+
+            metadata_task = Task(
+                config=self.tasks_config["metadata_task"],
+                expected_output="JSON com metadados extraídos do documento",
+                agent=metadata_agent
+            )
+
+            summary_task = Task(
+                config=self.tasks_config["summary_task"],
+                expected_output="Resumo executivo do documento em português",
+                agent=summary_agent
+            )
+
+            # Cria a crew principal
+            crew = Crew(
+                agents=[metadata_agent, summary_agent],
+                tasks=[metadata_task, summary_task],
+                verbose=self.verbose
+            )
+
+            # Processa o documento
+            result = crew.kickoff()
+
+            # Processa o resultado da crew principal
+            summary = ""
+            metadata = {}
+            
+            if isinstance(result, str):
+                summary = result
+            else:
+                try:
+                    # Tenta extrair o resultado do objeto CrewOutput
+                    result_str = str(result)
+                    summary = result_str
+                except Exception as e:
+                    logger.error(f"Erro ao processar resultado da crew principal: {str(e)}")
+                    summary = ""
+
+            # Retorna o resultado
+            return {
+                "target_match": True,
+                "summary": summary,
+                "metadata": metadata
+            }
+
+        except Exception as e:
+            logger.error(f"Erro durante o processamento: {str(e)}")
+            return {
+                "target_match": False,
+                "summary": "",
+                "metadata": {},
+                "error": str(e)
+            }
