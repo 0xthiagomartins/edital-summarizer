@@ -41,8 +41,19 @@ def process_edital(document_path: str, target: str, threshold: int = 500, force_
         # Processa o documento
         result = summarizer.kickoff(document_path, target, threshold)
         
+        # Se force_match for True, força o target_match e usa o resumo gerado
+        if force_match:
+            return {
+                "target_match": True,  # Força o target_match
+                "threshold_match": True,
+                "target_summary": result["document_summary"],  # Usa o resumo gerado
+                "document_summary": result["document_summary"],  # Usa o resumo gerado
+                "justification": "",  # Limpa a justificativa já que forçamos o match
+                "metadata": {}
+            }
+        
         # Se não houver match e não for forçado, retorna a justificativa
-        if not result["target_match"] and not force_match:
+        if not result["target_match"]:
             return {
                 "target_match": False,
                 "threshold_match": True,
@@ -52,7 +63,7 @@ def process_edital(document_path: str, target: str, threshold: int = 500, force_
                 "metadata": {}
             }
         
-        # Se houver match ou for forçado, retorna o resumo
+        # Se houver match, retorna o resumo
         return {
             "target_match": result["target_match"],
             "threshold_match": True,

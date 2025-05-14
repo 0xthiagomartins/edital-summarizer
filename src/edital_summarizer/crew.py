@@ -225,7 +225,7 @@ class EditalSummarizer:
             
             # Segunda tarefa é o resumo
             summary = ""
-            if target_match and len(task_outputs) > 1:
+            if len(task_outputs) > 1:  # Removida a condição de target_match
                 summary = str(task_outputs[1])
                 print(f"Resumo gerado: {summary[:200]}...")
             
@@ -241,10 +241,9 @@ class EditalSummarizer:
             print(f"- Tamanho da justificativa: {len(justification)} caracteres")
 
             # Verifica se o resumo gerado é válido
-            if target_match and not summary:
+            if not summary:
                 print("\nResumo inválido gerado")
-                target_match = False
-                justification = "Não foi possível gerar um resumo válido para o documento."
+                summary = "Não foi possível gerar um resumo válido para o documento."
 
             # Verifica se o documento realmente é relevante
             if target_match and not any(keyword in combined_content.lower() for keyword in ['rpa', 'automação', 'processo', 'robotizado', 'automatizado']):
@@ -261,8 +260,8 @@ class EditalSummarizer:
             final_result = {
                 "target_match": target_match,
                 "threshold_match": True,  # Mantido para compatibilidade
-                "target_summary": summary if target_match else "",
-                "document_summary": summary if target_match else "",
+                "target_summary": summary,  # Sempre inclui o resumo
+                "document_summary": summary,  # Sempre inclui o resumo
                 "justification": justification if not target_match else "",
                 "metadata": {}
             }
