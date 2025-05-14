@@ -46,16 +46,22 @@ class DocumentProcessor:
             Dicionário com informações do processamento
         """
         try:
+            print(f"\nProcessando caminho: {path}")
+            print(f"Tipo de caminho: {'Arquivo' if os.path.isfile(path) else 'Diretório' if os.path.isdir(path) else 'Desconhecido'}")
+            
             # Verifica se é um arquivo ZIP
             if self.zip_handler.is_zip_file(path):
+                print("Arquivo ZIP detectado")
                 return self._process_zip(path)
             
             # Verifica se é um arquivo
             if os.path.isfile(path):
+                print("Processando arquivo individual")
                 return self._process_file(path)
             
             # Verifica se é um diretório
             if os.path.isdir(path):
+                print("Processando diretório")
                 return self._process_directory(path)
             
             raise ValueError(f"Caminho inválido: {path}")
@@ -126,9 +132,22 @@ class DocumentProcessor:
             Dicionário com informações do processamento
         """
         try:
-            # Lê o conteúdo do arquivo
-            with open(file_path, 'r', encoding='utf-8') as f:
-                content = f.read()
+            print(f"\nProcessando arquivo: {file_path}")
+            
+            # Ignora arquivos de metadados e outros arquivos não relevantes
+            if os.path.basename(file_path) in ['metadata.json', '.DS_Store']:
+                print("Arquivo ignorado por ser metadado")
+                return {
+                    "file_path": file_path,
+                    "file_name": os.path.basename(file_path),
+                    "content": "",
+                    "is_metadata": True
+                }
+
+            # Lê o conteúdo do arquivo usando o file_reader
+            print("Lendo conteúdo do arquivo...")
+            content = self.file_reader._run(file_path, self.max_chars)
+            print(f"Conteúdo lido: {len(content)} caracteres")
             
             return {
                 "file_path": file_path,
@@ -155,28 +174,46 @@ class DocumentProcessor:
             Dicionário com informações do processamento
         """
         try:
+            print(f"\nProcessando diretório: {dir_path}")
             documents = []
             
             # Processa cada item no diretório
             for item in os.listdir(dir_path):
                 item_path = os.path.join(dir_path, item)
+                print(f"\nEncontrado item: {item}")
                 
                 # Ignora arquivos ocultos e temporários
                 if item.startswith('.') or item.endswith('.tmp'):
+                    print(f"Ignorando arquivo oculto/temporário: {item}")
                     continue
                 
                 # Processa o item
+                print(f"Processando item: {item_path}")
                 result = self.process_path(item_path)
                 if 'documents' in result:
+                    print(f"Item contém múltiplos documentos: {len(result['documents'])}")
                     documents.extend(result['documents'])
-                elif 'content' in result:
+                elif 'content' in result and not result.get('is_metadata', False):
+                    print(f"Item processado com sucesso: {item}")
                     documents.append(result)
+            
+            # Combina o conteúdo de todos os documentos
+            print("\nCombinando conteúdo dos documentos...")
+            combined_content = ""
+            for doc in documents:
+                if doc.get('content'):
+                    print(f"Adicionando conteúdo de: {doc['file_name']}")
+                    combined_content += f"\n\n=== {doc['file_name']} ===\n\n"
+                    combined_content += doc['content']
+            
+            print(f"Conteúdo combinado: {len(combined_content)} caracteres")
             
             return {
                 "file_path": dir_path,
                 "file_name": os.path.basename(dir_path),
                 "is_directory": True,
-                "documents": documents
+                "documents": documents,
+                "content": combined_content
             }
             
         except Exception as e:

@@ -17,79 +17,74 @@
 #     Formatted as markdown without '```'
 #   agent: reporting_analyst
 
-metadata_task:
-  description: >
-    Analise o documento de edital e extraia as seguintes informações:
+target_analysis_task:
+  description: |
+    Analise o documento e determine se ele é relevante para o target: {target}
+    O target pode incluir uma descrição entre parênteses. Por exemplo:
+    - Se o target for "RPA (Automação de Processos Robotizados)", você deve verificar se o documento
+      menciona RPA, automação de processos, processos robotizados ou termos relacionados.
+    - Se o target for "Tablet (Dispositivo móvel)", você deve verificar se o documento
+      menciona tablets, dispositivos móveis ou termos relacionados.
 
-    1. IDENTIFICADORES:
-    - Número do edital (public_notice)
-    - Número do processo (process_id)
-    - Número da licitação (bid_number)
+    Considere tanto o termo principal quanto a descrição entre parênteses ao fazer a análise.
+    
+    CRITÉRIOS DE RELEVÂNCIA:
+    1. O documento DEVE conter referências diretas ao target ou termos relacionados
+    2. O documento DEVE ter conteúdo relevante para o contexto do target
+    3. Documentos que não mencionam o target ou termos relacionados NÃO são relevantes
+    4. Documentos que mencionam o target mas não têm conteúdo relevante NÃO são relevantes
+    5. Documentos que são apenas formulários, cotações ou documentos administrativos NÃO são relevantes
+    6. Documentos que não têm relação com o contexto do target NÃO são relevantes
 
-    2. ORGANIZAÇÕES:
-    - Órgão responsável (organization)
-    - Telefone de contato (phone)
-    - Website (website)
-    - Cidade/Local (location)
+    IMPORTANTE: 
+    1. Retorne APENAS 'true' se o documento for relevante para o target
+    2. Retorne APENAS 'false' se o documento NÃO for relevante para o target
+    3. NÃO inclua nenhum outro texto na resposta
+    4. NÃO explique sua decisão
+    5. NÃO adicione pontuação ou espaços extras
+    6. Use APENAS letras minúsculas
 
-    3. OBJETO:
-    - Título do edital (title)
-    - Objeto da licitação (object)
-    - Datas importantes (dates)
-
-    Estruture sua resposta em formato JSON completo com todas as informações acima.
-
-  expected_output: >
-    Um JSON contendo todas as informações extraídas nas categorias solicitadas.
-  agent: metadata_agent
+    DOCUMENTO:
+    {document_content}
+  expected_output: "true ou false"
+  agent: target_analyst_agent
 
 summary_task:
-  description: >
-    Com base no documento do edital, crie:
+  description: |
+    Gere um resumo executivo do documento, focando em aspectos relevantes para o target: {target}
+    O resumo deve ser conciso e informativo, destacando os pontos mais importantes relacionados ao target.
+    IMPORTANTE: 
+    1. O resumo DEVE ser em português
+    2. O resumo DEVE ser relevante para o target '{target}'
+    3. O resumo DEVE ser informativo e útil
+    4. NÃO inclua nenhum texto em inglês
+    5. NÃO inclua nenhum texto explicativo antes ou depois do resumo
+    6. NÃO retorne "I now can give a great answer" ou qualquer outro texto em inglês
+    7. O resumo DEVE ser um texto completo e coerente em português
 
-    1. Um RESUMO EXECUTIVO conciso (máximo 10.000 caracteres) destacando os 
-       pontos-chave para tomadores de decisão, incluindo objeto, prazos, valores 
-       e requisitos principais.
-       
-    2. Um RESUMO TÉCNICO detalhado (máximo 15.000 caracteres) com as especificações
-       técnicas relevantes, requisitos, condições de entrega/execução e outras
-       informações técnicas importantes.
-
-    IMPORTANTE: Seu resultado DEVE seguir EXATAMENTE este formato:
-
-    # RESUMO EXECUTIVO
-    (conteúdo do resumo executivo aqui)
-
-    # RESUMO TÉCNICO
-    (conteúdo do resumo técnico aqui)
-
-  expected_output: >
-    Um documento markdown com as duas seções de resumo claramente separadas.
+    DOCUMENTO:
+    {document_content}
+  expected_output: "Resumo executivo em português"
   agent: summary_agent
 
-executive_summary:
-  description: >
-    Com base nas informações extraídas do edital, crie um resumo executivo
-    conciso que destaque os pontos mais importantes do edital. O resumo deve
-    ter no máximo 10.000 caracteres e ser escrito em linguagem clara e direta,
-    focando em informações relevantes para tomadores de decisão.
+justification_task:
+  description: |
+    Gere uma justificativa clara e objetiva para a não geração do resumo.
+    Considere os seguintes cenários:
+    1. Se o documento não for relevante para o target '{target}'
+    2. Se o número de referências ao target for menor que o threshold
 
-    Utilize as informações do documento e os metadados fornecidos.
-  expected_output: >
-    Um texto em formato markdown com um resumo executivo do edital, destacando
-    pontos-chave como objeto, prazos, valores e requisitos principais.
-  agent: executive_summary_agent
+    A justificativa deve ser profissional e técnica, explicando o motivo da não geração do resumo.
+    IMPORTANTE: 
+    1. A justificativa DEVE ser em português
+    2. A justificativa DEVE ser clara e objetiva
+    3. NÃO inclua nenhum texto em inglês
+    4. NÃO inclua nenhum texto explicativo antes ou depois da justificativa
+    5. A justificativa DEVE explicar POR QUE o documento não é relevante para o target
+    6. NÃO mencione problemas de leitura ou processamento do documento
+    7. Foque em explicar a falta de relevância do conteúdo do documento para o target
 
-technical_summary:
-  description: >
-    Com base nas informações extraídas do edital, crie um resumo técnico detalhado
-    que capture todas as especificações técnicas relevantes. O resumo deve ter no
-    máximo 15.000 caracteres e incluir detalhes sobre requisitos técnicos, 
-    especificações, condições de entrega/execução e outras informações técnicas
-    importantes.
-
-    Utilize as informações do documento e os metadados fornecidos.
-  expected_output: >
-    Um texto em formato markdown com um resumo técnico detalhado do edital,
-    incluindo todas as especificações e requisitos técnicos relevantes.
-  agent: technical_summary_agent
+    DOCUMENTO:
+    {document_content}
+  expected_output: "Justificativa técnica em português explicando por que o documento não é relevante para o target"
+  agent: justification_agent

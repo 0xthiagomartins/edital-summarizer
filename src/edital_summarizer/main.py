@@ -13,7 +13,9 @@ load_dotenv()
 
 from edital_summarizer.crew import EditalSummarizer
 from edital_summarizer.processors.document import DocumentProcessor
-from .utils.logger import get_logger
+from edital_summarizer.processors.metadata import MetadataProcessor
+from edital_summarizer.processors.summary import SummaryProcessor
+from edital_summarizer.utils.logger import get_logger
 
 warnings.filterwarnings("ignore", category=SyntaxWarning, module="pysbd")
 
@@ -30,50 +32,45 @@ def check_device_threshold(text: str, threshold: int) -> bool:
     count = sum(text.lower().count(keyword) for keyword in device_keywords)
     return count >= threshold
 
-def process_edital(edital_path: str, target: str, threshold: int = 500) -> Dict[str, Any]:
-    """Processa um edital e retorna um dicionário com os resultados."""
+def process_edital(document_path: str, target: str, threshold: int = 500, force_match: bool = False, verbose: bool = False, output_file: str = "llmResponse.json") -> dict:
+    """Processa um edital e retorna o resultado."""
     try:
-        # Inicializa o resultado
-        result = {
-            "target_match": False,
-            "threshold_match": True,  # Assume True por padrão se não for dispositivo
-            "summary": "",
+        # Inicializa o processador
+        summarizer = EditalSummarizer()
+        
+        # Processa o documento
+        result = summarizer.kickoff(document_path, target, threshold)
+        
+        # Se não houver match e não for forçado, retorna a justificativa
+        if not result["target_match"] and not force_match:
+            return {
+                "target_match": False,
+                "threshold_match": True,
+                "target_summary": "",
+                "document_summary": "",
+                "justification": result["justification"],
+                "metadata": {}
+            }
+        
+        # Se houver match ou for forçado, retorna o resumo
+        return {
+            "target_match": result["target_match"],
+            "threshold_match": True,
+            "target_summary": result["target_summary"],
+            "document_summary": result["document_summary"],
+            "justification": result["justification"],
             "metadata": {}
         }
-
-        # Cria a instância do crew
-        crew = EditalSummarizer(verbose=True)
         
-        # Verifica se é target de dispositivo
-        if is_device_target(target):
-            # Verifica o threshold
-            with open(edital_path, 'r', encoding='utf-8') as f:
-                text = f.read()
-            if not check_device_threshold(text, threshold):
-                result["threshold_match"] = False
-                return result
-
-        # Processa o edital
-        output = crew.kickoff(edital_path, target)
-        
-        # Atualiza o resultado
-        result["target_match"] = output.get("target_match", False)
-        result["metadata"] = output.get("metadata", {})
-        
-        # Só gera resumo se o target der match
-        if result["target_match"]:
-            result["summary"] = output.get("summary", "")
-        
-        return result
-
     except Exception as e:
         logger.error(f"Erro ao processar edital: {str(e)}")
         return {
             "target_match": False,
             "threshold_match": False,
-            "summary": "",
-            "metadata": {},
-            "error": str(e)
+            "target_summary": "",
+            "document_summary": "",
+            "justification": f"Erro ao processar edital: {str(e)}",
+            "metadata": {}
         }
 
 def parse_args():
@@ -104,6 +101,12 @@ def parse_args():
         "--output",
         default="resultado.json",
         help="Caminho para o arquivo de saída (JSON)"
+    )
+
+    parser.add_argument(
+        "--force-match",
+        action="store_true",
+        help="Força o target_match a ser True"
     )
 
     parser.add_argument(
@@ -156,22 +159,74 @@ def run():
     if output_dir and not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
-    if args.verbose:
-        print(f"Processando: {document_path}")
-        print(f"Arquivo de saída: {output_file}")
+    print(f"\n=== Iniciando processamento ===")
+    print(f"Documento: {document_path}")
+    print(f"Target: {args.target}")
+    print(f"Threshold: {args.threshold}")
+    print(f"Force Match: {args.force_match}")
+    print(f"Modo Verboso: {args.verbose}")
+    print(f"Arquivo de saída: {output_file}\n")
 
     try:
-        # Processa o edital
-        edital_result = process_edital(document_path, args.target, args.threshold)
+        # Se force_match for True, força o target_match mas ainda usa o crew para gerar o resumo
+        if args.force_match:
+            print("=== Modo Force Match Ativado ===")
+            # Verifica se é um diretório
+            if os.path.isdir(document_path):
+                print("Processando diretório...")
+                # Processa todos os arquivos no diretório
+                all_text = ""
+                for root, _, files in os.walk(document_path):
+                    for file in files:
+                        if file.endswith('.txt'):  # Processa apenas arquivos .txt
+                            file_path = os.path.join(root, file)
+                            print(f"Lendo arquivo: {file_path}")
+                            with open(file_path, 'r', encoding='utf-8') as f:
+                                all_text += f.read() + "\n\n"
+                
+                print("Processando metadados...")
+                # Processa os metadados do texto combinado
+                metadata_processor = MetadataProcessor()
+                metadata = metadata_processor.process({"text": all_text})
+            else:
+                print("Processando arquivo único...")
+                # Processa um único arquivo
+                with open(document_path, 'r', encoding='utf-8') as f:
+                    text = f.read()
+                
+                print("Processando metadados...")
+                # Processa os metadados
+                metadata_processor = MetadataProcessor()
+                metadata = metadata_processor.process({"text": text})
+            
+            print("\n=== Iniciando Crew para geração do resumo ===")
+            # Cria a instância do crew
+            crew = EditalSummarizer(verbose=True)
+            
+            # Processa o edital forçando o target_match
+            output = crew.kickoff(document_path, args.target)
+            
+            # Força o target_match e threshold_match para True
+            output["target_match"] = True
+            output["threshold_match"] = True
+            
+            result = output
+            
+        else:
+            print("=== Iniciando processamento normal com Crew ===")
+            # Processa normalmente usando o crew
+            result = process_edital(document_path, args.target, args.threshold)
         
+        print("\n=== Salvando resultado ===")
         # Salva o resultado em JSON
         with open(output_file, 'w', encoding='utf-8') as f:
-            json.dump(edital_result, f, ensure_ascii=False, indent=2)
+            json.dump(result, f, ensure_ascii=False, indent=2)
         
-        logger.info(f"Resultado salvo em: {output_file}")
+        print(f"Resultado salvo em: {output_file}")
+        print("\n=== Processamento concluído ===")
 
     except Exception as e:
-        print(f"ERRO durante o processamento: {str(e)}")
+        print(f"\nERRO durante o processamento: {str(e)}")
         sys.exit(1)
 
 

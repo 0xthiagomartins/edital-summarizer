@@ -23,19 +23,16 @@ logger = get_logger(__name__)
 class EditalSummarizer:
     """EditalSummarizer crew otimizado para processamento de editais de licitação"""
 
-    agents: List[BaseAgent]
-    tasks: List[Task]
+    def __init__(self, verbose: bool = False):
+        self.verbose = verbose
+        self.agents_config = get_agents()
+        self.tasks_config = get_tasks()
+        self.processor = DocumentProcessor()
 
-    # Learn more about YAML configuration files here:
-    # Agents: https://docs.crewai.com/concepts/agents#yaml-configuration-recommended
-    # Tasks: https://docs.crewai.com/concepts/tasks#yaml-configuration-recommended
-
-    # If you would like to add tools to your agents, you can learn more about it here:
-    # https://docs.crewai.com/concepts/agents#agent-tools
     @agent
-    def metadata_agent(self) -> Agent:
+    def target_analyst_agent(self) -> Agent:
         return Agent(
-            config=self.agents_config["metadata_agent"],
+            config=self.agents_config["target_analyst_agent"],
             tools=[SimpleFileReadTool(), DocumentSearchTool()],
             verbose=True,
             llm_config={
@@ -46,7 +43,6 @@ class EditalSummarizer:
                 "max_retries": 2,
                 "retry_delay": 5,
                 "timeout": 30,
-                "max_tokens": 500,  # Limitar tokens para metadados
             },
         )
 
@@ -68,9 +64,9 @@ class EditalSummarizer:
         )
 
     @agent
-    def executive_summary_agent(self) -> Agent:
+    def justification_agent(self) -> Agent:
         return Agent(
-            config=self.agents_config["executive_summary_agent"],
+            config=self.agents_config["justification_agent"],
             tools=[SimpleFileReadTool(), DocumentSearchTool()],
             verbose=True,
             llm_config={
@@ -84,611 +80,207 @@ class EditalSummarizer:
             },
         )
 
-    @agent
-    def technical_summary_agent(self) -> Agent:
-        return Agent(
-            config=self.agents_config["technical_summary_agent"],
-            tools=[SimpleFileReadTool(), DocumentSearchTool(), TableExtractionTool()],
-            verbose=True,
-            llm_config={
-                "provider": "openai",
-                "model": "gpt-4-turbo-preview",
-                "api_key": os.getenv("OPENAI_API_KEY"),
-                "temperature": 0.3,
-                "max_retries": 2,
-                "retry_delay": 5,
-                "timeout": 60,
-            },
-        )
-
-    @task
-    def metadata_task(self) -> Task:
-        return Task(
-            config=self.tasks_config["metadata_task"],  # type: ignore[index]
-            expected_output="JSON com metadados extraídos do documento",
-        )
-
-    @task
-    def summary_task(self) -> Task:
-        return Task(
-            config=self.tasks_config["summary_task"],  # type: ignore[index]
-            expected_output="Resumo executivo do documento em português",
-        )
-
-    @crew
-    def crew(self) -> Crew:
-        """Define the crew for processing editais."""
-        return Crew(
-            agents=[
-                self.metadata_agent(),
-                self.summary_agent(),
-            ],
-            tasks=[
-                self.metadata_task(),
-                self.summary_task(),
-            ],
-            verbose=True,
-            process=Process.sequential,  # Sequencial para controle
-        )
-
-    @agent
-    def document_type_agent(self) -> Agent:
-        """Agente especializado em identificar o tipo de documento."""
-        return Agent(
-            role="Especialista em Classificação de Documentos",
-            goal="Identificar o tipo e propósito de documentos de licitação",
-            backstory="""Você é um especialista em classificação de documentos de licitação.
-            Sua função é analisar o conteúdo do documento e identificar seu tipo e propósito.
-            Você deve classificar documentos em categorias como:
-            - Edital de Licitação
-            - Termo de Referência
-            - Projeto Básico
-            - Projeto Executivo
-            - Anexo Técnico
-            - Outros documentos relacionados""",
-            verbose=True,
-            allow_delegation=False,
-            tools=[DocumentSearchTool()],
-            llm_config={
-                "provider": "openai",
-                "model": "gpt-4-turbo-preview",
-                "api_key": os.getenv("OPENAI_API_KEY"),
-                "temperature": 0.2,
-                "max_retries": 2,
-                "retry_delay": 5,
-                "timeout": 30,
-            },
-        )
-
-    def process_document(
-        self,
-        document_path: str,
-        output_file: str,
-        verbose: bool = False,
-        ignore_metadata: bool = False,
-        full_content: bool = False,
-    ) -> Dict[str, Any]:
-        """
-        Processa um documento ou diretório de documentos.
-
-        Args:
-            document_path: Caminho para o documento ou diretório
-            output_file: Arquivo de saída (Excel)
-            verbose: Se True, exibe logs detalhados
-            ignore_metadata: Se True, ignora os metadados existentes
-            full_content: Se True, processa o conteúdo completo do documento
-
-        Returns:
-            Dicionário com resultados do processamento
-        """
-        # Processar o documento/diretório
-        processor = DocumentProcessor()
-        document_data = processor.process_path(document_path)
-
-        results = []
-
-        # Para cada documento encontrado
-        documents = document_data.get("documents", [document_data])
-        for doc in documents:
-            document_content = doc.get("content", "")
-            has_metadata = doc.get("has_metadata_file", False) and not ignore_metadata
-            existing_metadata = doc.get("metadata", {})
-            file_path = doc.get("file_path", "")
-
-            if verbose:
-                print(f"Processando documento: {doc.get('file_name', 'unknown')}")
-                print(f"Tamanho do conteúdo: {len(document_content)} caracteres")
-                if has_metadata:
-                    print(f"Usando metadados do arquivo metadata.json")
-                if not full_content:
-                    print("Modo de processamento: Conteúdo limitado (otimizado para testes)")
-                else:
-                    print("Modo de processamento: Conteúdo completo")
-
-            # Primeiro, identificar o tipo do documento
-            document_type_task = Task(
-                description=f"""
-Analise o documento e identifique seu tipo e propósito. O documento deve ser classificado em uma das seguintes categorias:
-- Edital de Licitação
-- Termo de Referência
-- Projeto Básico
-- Projeto Executivo
-- Anexo Técnico
-- Outros documentos relacionados
-
-DOCUMENTO:
-{document_content[:5000]}  # Primeiros 5000 caracteres para análise inicial
-
-Forneça sua resposta no seguinte formato:
-TIPO: [tipo do documento]
-PROPÓSITO: [breve descrição do propósito do documento]
-""",
-                expected_output="Identificação do tipo e propósito do documento",
-                agent=self.document_type_agent(),
-            )
-
-            # Criar um crew temporário para identificar o tipo do documento
-            type_crew = Crew(
-                agents=[self.document_type_agent()],
-                tasks=[document_type_task],
-                verbose=verbose,
-                process=Process.sequential,
-            )
-
-            try:
-                type_result = type_crew.kickoff()
-                document_type = "Não identificado"
-                document_purpose = "Não identificado"
-                
-                # Log detalhado do type_result
-                print("\n=== DEBUG: Análise do type_result ===")
-                print(f"Tipo do type_result: {type(type_result)}")
-                print(f"Conteúdo do type_result: {type_result}")
-                
-                # Extrair tipo e propósito do resultado
-                if isinstance(type_result, str):
-                    print("\n=== DEBUG: Processando type_result como string ===")
-                    for line in type_result.split('\n'):
-                        print(f"Linha processada: {line}")
-                        if line.startswith('TIPO:'):
-                            document_type = line.replace('TIPO:', '').strip()
-                            print(f"Tipo encontrado: {document_type}")
-                        elif line.startswith('PROPÓSITO:'):
-                            document_purpose = line.replace('PROPÓSITO:', '').strip()
-                            print(f"Propósito encontrado: {document_purpose}")
-                else:
-                    # Se não for string, tentar extrair do objeto CrewOutput
-                    print("\n=== DEBUG: Processando type_result como objeto ===")
-                    # Primeiro tenta acessar diretamente o conteúdo
-                    content = str(type_result)
-                    for line in content.split('\n'):
-                        print(f"Linha processada: {line}")
-                        if line.startswith('TIPO:'):
-                            document_type = line.replace('TIPO:', '').strip()
-                            print(f"Tipo encontrado: {document_type}")
-                        elif line.startswith('PROPÓSITO:'):
-                            document_purpose = line.replace('PROPÓSITO:', '').strip()
-                            print(f"Propósito encontrado: {document_purpose}")
-
-                if verbose:
-                    print(f"\n=== Valores finais ===")
-                    print(f"Tipo do documento identificado: {document_type}")
-                    print(f"Propósito: {document_purpose}")
-
-                # Garantir que o tipo e propósito não sejam vazios
-                if not document_type or document_type == "":
-                    document_type = "Não identificado"
-                if not document_purpose or document_purpose == "":
-                    document_purpose = "Não identificado"
-
-                print("\n=== Valores após validação ===")
-                print(f"Tipo do documento final: {document_type}")
-                print(f"Propósito final: {document_purpose}")
-
-                # Continuar com o processamento normal, agora com informação do tipo do documento
-                if has_metadata:
-                    if existing_metadata:
-                        if verbose:
-                            print("Metadados encontrados no arquivo JSON, pulando extração de metadados")
-
-                        # Preparar inputs simplificados para resumos
-                        inputs = {
-                            "document_text": document_content,
-                            "metadata": json.dumps(existing_metadata),
-                            "file_path": file_path,
-                            "document_type": document_type,
-                            "document_purpose": document_purpose,
-                        }
-
-                        # Executar o crew apenas para gerar resumos
-                        try:
-                            # Limitamos o tamanho do conteúdo para evitar exceder o contexto
-                            max_content_length = None if full_content else 4000
-                            truncated_content = document_content
-                            if not full_content and len(document_content) > max_content_length:
-                                truncated_content = document_content[:max_content_length]
-                                truncated_content += f"\n\n[Texto truncado em {max_content_length} caracteres]"
-
-                            # Usar o summary_agent em vez de executive_summary_agent e technical_summary_agent
-                            summary_task = Task(
-                                description=f"""
-Com base no documento do edital e nos metadados fornecidos, crie:
-
-1. Um RESUMO EXECUTIVO conciso (máximo 10.000 caracteres) destacando os 
-   pontos-chave para tomadores de decisão, incluindo objeto, prazos, valores 
-   e requisitos principais.
-   
-2. Um RESUMO TÉCNICO detalhado (máximo 15.000 caracteres) com as especificações
-   técnicas relevantes, requisitos, condições de entrega/execução e outras
-   informações técnicas importantes.
-
-TIPO DO DOCUMENTO: {document_type}
-PROPÓSITO: {document_purpose}
-
-CONTEÚDO DO DOCUMENTO:
-{truncated_content}
-
-METADADOS:
-{json.dumps(existing_metadata, indent=2)}
-
-IMPORTANTE: 
-1. Seu resultado DEVE seguir EXATAMENTE este formato:
-
-# RESUMO EXECUTIVO
-(conteúdo do resumo executivo aqui)
-
-# RESUMO TÉCNICO
-(conteúdo do resumo técnico aqui)
-
-2. NÃO inclua nenhum texto explicativo antes ou depois dos resumos.
-3. NÃO inclua o texto "Given the complexity..." ou qualquer outro texto em inglês.
-4. Mantenha os resumos em português.
-5. Mantenha os resumos SEPARADOS, não os concatene.
-6. NÃO inclua os cabeçalhos "RESUMO EXECUTIVO:" ou "RESUMO TÉCNICO:" no texto dos resumos.
-""",
-                                expected_output="Um documento markdown com as duas seções de resumo claramente separadas.",
-                                agent=self.summary_agent(),
-                            )
-
-                            # Criamos um crew menor apenas com o agente de resumo
-                            crew = Crew(
-                                agents=[self.summary_agent()],
-                                tasks=[summary_task],
-                                verbose=verbose,
-                                process=Process.sequential,
-                            )
-
-                            crew_result = crew.kickoff(inputs=inputs)
-
-                            # Processar o resultado para extrair os resumos
-                            summary_output = ""
-
-                            # Adicionar log para entender o tipo e a estrutura do crew_result
-                            print(f"Tipo do crew_result: {type(crew_result)}")
-                            print(f"Atributos disponíveis: {dir(crew_result)}")
-
-                            # Tentar diferentes formas de acessar o output
-                            try:
-                                # Tentar acessar através do atributo tasks_output
-                                if hasattr(crew_result, "tasks_output"):
-                                    print("Acessando via tasks_output")
-                                    task_output = crew_result.tasks_output[0]
-                                    print(f"Tipo do task_output: {type(task_output)}")
-                                    print(f"Atributos do task_output: {dir(task_output)}")
-
-                                    # Tentar vários atributos possíveis
-                                    if hasattr(task_output, "result"):
-                                        summary_output = task_output.result
-                                    elif hasattr(task_output, "content"):
-                                        summary_output = task_output.content
-                                    elif hasattr(task_output, "task_output"):
-                                        summary_output = task_output.task_output
-                                    elif hasattr(task_output, "final_answer"):
-                                        summary_output = task_output.final_answer
-                                    elif hasattr(task_output, "value"):
-                                        summary_output = task_output.value
-                                    else:
-                                        # Último recurso - converter para string
-                                        summary_output = str(task_output)
-                            except Exception as e:
-                                print(f"Erro ao acessar o output: {str(e)}")
-                                summary_output = ""
-
-                            print(f"RESUMO EXTRAÍDO: {summary_output[:100]}...")
-
-                            # Separar os resumos
-                            executive_summary = ""
-                            technical_summary = ""
-                            if "# RESUMO EXECUTIVO" in summary_output and "# RESUMO TÉCNICO" in summary_output:
-                                parts = summary_output.split("# RESUMO TÉCNICO", 1)
-                                executive_part = parts[0].strip()
-                                technical_part = parts[1].strip() if len(parts) > 1 else ""
-
-                                # Remover cabeçalho do resumo executivo e qualquer texto em inglês
-                                executive_summary = executive_part.replace("# RESUMO EXECUTIVO", "").strip()
-                                # Remover texto em inglês do início
-                                if executive_summary.lower().startswith("given the"):
-                                    executive_summary = executive_summary.split("\n\n", 1)[-1]
-                                technical_summary = technical_part.strip()
-
-                                print(f"RESUMO EXECUTIVO EXTRAÍDO: {executive_summary[:100]}...")
-                                print(f"RESUMO TÉCNICO EXTRAÍDO: {technical_summary[:100]}...")
-                            else:
-                                print("AVISO: Não foi possível separar os resumos executivo e técnico.")
-
-                            # Adicionar resultados
-                            result = {
-                                "file_name": doc.get("file_name", ""),
-                                "file_path": file_path,
-                                "metadata": existing_metadata,
-                                "document_type": document_type,
-                                "document_purpose": document_purpose,
-                                "executive_summary": executive_summary,
-                                "technical_summary": technical_summary,
-                            }
-
-                            results.append(result)
-
-                        except Exception as e:
-                            if verbose:
-                                print(f"Erro ao processar resumos: {str(e)}")
-                            results.append(
-                                {
-                                    "file_name": doc.get("file_name", ""),
-                                    "file_path": file_path,
-                                    "metadata": existing_metadata,
-                                    "error": str(e),
-                                }
-                            )
-                    else:
-                        # Processamento completo com extração de metadados
-                        if verbose:
-                            print(
-                                "Nenhum arquivo de metadados encontrado, extraindo metadados via IA"
-                            )
-
-                        # Preparar inputs para o processamento completo
-                        inputs = {
-                            "document_content": document_content,
-                            "identifier_task": {"document_text": document_content},
-                            "organization_task": {"document_text": document_content},
-                            "subject_task": {"document_text": document_content},
-                            "executive_summary": {"document_text": document_content},
-                            "technical_summary": {"document_text": document_content},
-                        }
-
-                        # Executar o crew completo
-                        try:
-                            crew_result = self.crew().kickoff(inputs=inputs)
-
-                            # Consolidar metadados
-                            metadata = {}
-                            for task_result in crew_result:
-                                if task_result.task_id == "metadata_task":
-                                    metadata = task_result.output
-
-                            # Extrair resumos do resultado da tarefa de resumo
-                            summary_output = ""
-                            for task_result in crew_result:
-                                if task_result.task_id == "summary_task":
-                                    summary_output = task_result.output
-
-                            # Separar os resumos
-                            executive_summary = ""
-                            technical_summary = ""
-                            if (
-                                "# RESUMO EXECUTIVO" in summary_output
-                                and "# RESUMO TÉCNICO" in summary_output
-                            ):
-                                parts = summary_output.split("# RESUMO TÉCNICO", 1)
-                                executive_part = parts[0].strip()
-                                technical_part = parts[1].strip() if len(parts) > 1 else ""
-
-                                # Remover cabeçalho do resumo executivo
-                                executive_summary = executive_part.replace(
-                                    "# RESUMO EXECUTIVO", ""
-                                ).strip()
-                                technical_summary = technical_part.strip()
-
-                            # Adicionar resultados
-                            result = {
-                                "file_name": doc.get("file_name", ""),
-                                "file_path": doc.get("file_path", ""),
-                                "metadata": metadata,
-                                "document_type": document_type if document_type else "Não identificado",
-                                "document_purpose": document_purpose if document_purpose else "Não identificado",
-                                "executive_summary": executive_summary,
-                                "technical_summary": technical_summary,
-                            }
-
-                            # Garantir que o tipo e propósito do documento estejam presentes
-                            if not result["document_type"]:
-                                result["document_type"] = "Não identificado"
-                            if not result["document_purpose"]:
-                                result["document_purpose"] = "Não identificado"
-
-                            results.append(result)
-
-                        except Exception as e:
-                            if verbose:
-                                print(f"Erro ao processar documento: {str(e)}")
-                            results.append(
-                                {
-                                    "file_name": doc.get("file_name", ""),
-                                    "file_path": doc.get("file_path", ""),
-                                    "error": str(e),
-                                }
-                            )
-                else:
-                    # Adicionar resultados
-                    result = {
-                        "file_name": doc.get("file_name", ""),
-                        "file_path": file_path,
-                        "metadata": existing_metadata,
-                        "document_type": document_type if document_type else "Não identificado",
-                        "document_purpose": document_purpose if document_purpose else "Não identificado",
-                        "executive_summary": "",
-                        "technical_summary": "",
-                    }
-
-                    # Garantir que o tipo e propósito do documento estejam presentes
-                    if not result["document_type"]:
-                        result["document_type"] = "Não identificado"
-                    if not result["document_purpose"]:
-                        result["document_purpose"] = "Não identificado"
-
-                    results.append(result)
-            except Exception as e:
-                if verbose:
-                    print(f"Erro ao identificar o tipo do documento: {str(e)}")
-                results.append(
-                    {
-                        "file_name": doc.get("file_name", ""),
-                        "file_path": file_path,
-                        "error": str(e),
-                    }
-                )
-
-        # Gerar relatório Excel
-        report_generator = ExcelReportGenerator()
-        report_generator.generate_report(results, output_file)
-
-        if verbose:
-            print(f"Relatório gerado em: {output_file}")
-
-        return {
-            "document_path": document_path,
-            "output_file": output_file,
-            "documents_processed": len(results),
-            "results": results,
-        }
-
-    def __init__(self, verbose: bool = False):
-        self.verbose = verbose
-        self.agents_config = get_agents()
-        self.tasks_config = get_tasks()
-
-    def kickoff(self, edital_path: str, target: str) -> Dict[str, Any]:
-        """Processa o edital e retorna um dicionário com os resultados."""
+    def kickoff(self, document_path: str, target: str, threshold: int = 500) -> dict:
+        """Inicia o processamento do documento."""
         try:
-            # Cria o agente de verificação de target
-            target_agent = Agent(
-                role="Analista de Target",
-                goal="Verificar se o documento é relevante para o target especificado",
-                backstory="""Você é um especialista em análise de documentos.
-                Sua função é determinar se o documento é relevante para o target especificado.""",
-                verbose=self.verbose
-            )
+            print("\n=== Iniciando processamento do documento ===")
+            print(f"Documento: {document_path}")
+            print(f"Target: {target}")
+            print(f"Threshold: {threshold}")
 
-            # Cria a task de verificação de target
-            target_task = Task(
-                description=f"""Analise o documento e determine se ele é relevante para o target: {target}
-
-                O target pode incluir uma descrição entre parênteses. Por exemplo:
-                - Se o target for "RPA (Automação de Processos Robotizados)", você deve verificar se o documento
-                  menciona RPA, automação de processos, processos robotizados ou termos relacionados.
-                - Se o target for "Tablet (Dispositivo móvel)", você deve verificar se o documento
-                  menciona tablets, dispositivos móveis ou termos relacionados.
-
-                Considere tanto o termo principal quanto a descrição entre parênteses ao fazer a análise.
-
-                Retorne apenas 'True' se o documento for relevante para o target ou 'False' se não for.""",
-                expected_output="True ou False indicando se o documento é relevante para o target",
-                agent=target_agent
-            )
-
-            # Cria a crew para verificação de target
-            target_crew = Crew(
-                agents=[target_agent],
-                tasks=[target_task],
-                verbose=self.verbose
-            )
-
-            # Verifica o target
-            target_result = target_crew.kickoff()
+            # Processa o documento
+            print("\n=== Processando documento ===")
+            document_data = self.processor.process_path(document_path)
+            print(f"Tipo de document_data: {type(document_data)}")
+            print(f"Chaves em document_data: {document_data.keys() if isinstance(document_data, dict) else 'N/A'}")
             
-            # Processa o resultado da crew
-            target_match = False
-            if isinstance(target_result, str):
-                target_match = target_result.strip().lower() == 'true'
-            else:
-                # Se for um objeto CrewOutput, tenta extrair o resultado
-                try:
-                    result_str = str(target_result)
-                    target_match = result_str.strip().lower() == 'true'
-                except Exception as e:
-                    logger.error(f"Erro ao processar resultado da crew: {str(e)}")
-                    target_match = False
-
-            # Se não houver match, retorna imediatamente
-            if not target_match:
+            # Obtém o conteúdo combinado dos documentos
+            combined_content = ""
+            if document_data.get('documents'):
+                print("\n=== Processando documentos ===")
+                for doc in document_data['documents']:
+                    print(f"\nDocumento encontrado:")
+                    print(f"- Tipo: {type(doc)}")
+                    print(f"- Chaves: {doc.keys() if isinstance(doc, dict) else 'N/A'}")
+                    if doc.get('content'):
+                        print(f"- Tamanho do conteúdo: {len(doc['content'])} caracteres")
+                        combined_content += f"\n\n=== {doc.get('file_name', 'Unknown')} ===\n\n"
+                        combined_content += doc['content']
+            
+            print(f"\nTamanho total do conteúdo combinado: {len(combined_content)} caracteres")
+            
+            if not combined_content:
+                print("\nNenhum conteúdo encontrado nos documentos")
                 return {
                     "target_match": False,
-                    "summary": "",
+                    "threshold_match": False,
+                    "target_summary": "",
+                    "document_summary": "",
+                    "justification": "Não foi possível encontrar conteúdo nos documentos fornecidos.",
                     "metadata": {}
                 }
 
-            # Se houver match, continua com o processamento normal
-            # Cria os agentes e tasks para o processamento completo
-            metadata_agent = Agent(
-                config=self.agents_config["metadata_agent"],
-                verbose=self.verbose
+            # Cria os agentes
+            print("\n=== Criando agentes ===")
+            target_analyst = Agent(
+                role=self.agents_config["target_analyst_agent"]["role"],
+                goal=self.agents_config["target_analyst_agent"]["goal"],
+                backstory=self.agents_config["target_analyst_agent"]["backstory"],
+                verbose=True
             )
+            print(f"Agente target_analyst criado: {type(target_analyst)}")
 
             summary_agent = Agent(
-                config=self.agents_config["summary_agent"],
-                verbose=self.verbose
+                role=self.agents_config["summary_agent"]["role"],
+                goal=self.agents_config["summary_agent"]["goal"],
+                backstory=self.agents_config["summary_agent"]["backstory"],
+                verbose=True
             )
+            print(f"Agente summary_agent criado: {type(summary_agent)}")
 
-            metadata_task = Task(
-                config=self.tasks_config["metadata_task"],
-                expected_output="JSON com metadados extraídos do documento",
-                agent=metadata_agent
+            justification_agent = Agent(
+                role=self.agents_config["justification_agent"]["role"],
+                goal=self.agents_config["justification_agent"]["goal"],
+                backstory=self.agents_config["justification_agent"]["backstory"],
+                verbose=True
             )
+            print(f"Agente justification_agent criado: {type(justification_agent)}")
+
+            # Cria as tarefas
+            print("\n=== Criando tarefas ===")
+            target_analysis_task = Task(
+                description=self.tasks_config["target_analysis_task"]["description"].format(
+                    target=target,
+                    document_content=combined_content
+                ),
+                expected_output=self.tasks_config["target_analysis_task"]["expected_output"],
+                agent=target_analyst
+            )
+            print(f"Tarefa target_analysis_task criada: {type(target_analysis_task)}")
+            print(f"Configuração da tarefa:")
+            print(f"- Descrição: {target_analysis_task.description[:100]}...")
+            print(f"- Expected Output: {target_analysis_task.expected_output}")
 
             summary_task = Task(
-                config=self.tasks_config["summary_task"],
-                expected_output="Resumo executivo do documento em português",
+                description=self.tasks_config["summary_task"]["description"].format(
+                    target=target,
+                    document_content=combined_content
+                ),
+                expected_output=self.tasks_config["summary_task"]["expected_output"],
                 agent=summary_agent
             )
+            print(f"Tarefa summary_task criada: {type(summary_task)}")
+            print(f"Configuração da tarefa:")
+            print(f"- Descrição: {summary_task.description[:100]}...")
+            print(f"- Expected Output: {summary_task.expected_output}")
 
-            # Cria a crew principal
-            crew = Crew(
-                agents=[metadata_agent, summary_agent],
-                tasks=[metadata_task, summary_task],
-                verbose=self.verbose
+            justification_task = Task(
+                description=self.tasks_config["justification_task"]["description"].format(
+                    target=target,
+                    document_content=combined_content
+                ),
+                expected_output=self.tasks_config["justification_task"]["expected_output"],
+                agent=justification_agent
             )
+            print(f"Tarefa justification_task criada: {type(justification_task)}")
+            print(f"Configuração da tarefa:")
+            print(f"- Descrição: {justification_task.description[:100]}...")
+            print(f"- Expected Output: {justification_task.expected_output}")
 
-            # Processa o documento
+            # Cria a crew
+            print("\n=== Criando crew ===")
+            crew = Crew(
+                agents=[target_analyst, summary_agent, justification_agent],
+                tasks=[target_analysis_task, summary_task, justification_task],
+                verbose=True
+            )
+            print(f"Crew criada: {type(crew)}")
+
+            # Executa a crew
+            print("\n=== Executando crew ===")
             result = crew.kickoff()
+            print(f"Tipo do resultado: {type(result)}")
+            print(f"Conteúdo do resultado: {result}")
 
-            # Processa o resultado da crew principal
-            summary = ""
-            metadata = {}
+            # Processa o resultado
+            print("\n=== Processando resultado ===")
+            # O resultado vem como uma lista de outputs das tarefas
+            task_outputs = result.tasks_output if hasattr(result, 'tasks_output') else []
+            print(f"Outputs das tarefas: {task_outputs}")
             
-            if isinstance(result, str):
-                summary = result
-            else:
-                try:
-                    # Tenta extrair o resultado do objeto CrewOutput
-                    result_str = str(result)
-                    summary = result_str
-                except Exception as e:
-                    logger.error(f"Erro ao processar resultado da crew principal: {str(e)}")
-                    summary = ""
+            # Primeira tarefa é a análise de target
+            target_match = False
+            if len(task_outputs) > 0:
+                target_response = str(task_outputs[0]).strip().lower()
+                print(f"Resposta do analista de target: '{target_response}'")
+                
+                # Validação mais rigorosa da resposta
+                if target_response not in ['true', 'false']:
+                    print(f"Resposta inválida do analista de target: '{target_response}'")
+                    target_match = False
+                else:
+                    target_match = target_response == 'true'
+                
+                print(f"Target Match após processamento: {target_match}")
+            
+            # Segunda tarefa é o resumo
+            summary = ""
+            if target_match and len(task_outputs) > 1:
+                summary = str(task_outputs[1])
+                print(f"Resumo gerado: {summary[:200]}...")
+            
+            # Terceira tarefa é a justificativa
+            justification = ""
+            if not target_match and len(task_outputs) > 2:
+                justification = str(task_outputs[2])
+                print(f"Justificativa gerada: {justification[:200]}...")
 
-            # Retorna o resultado
-            return {
-                "target_match": True,
-                "summary": summary,
-                "metadata": metadata
+            print(f"\nResultado final do processamento:")
+            print(f"- Target Match: {target_match}")
+            print(f"- Tamanho do resumo: {len(summary)} caracteres")
+            print(f"- Tamanho da justificativa: {len(justification)} caracteres")
+
+            # Verifica se o resumo gerado é válido
+            if target_match and not summary:
+                print("\nResumo inválido gerado")
+                target_match = False
+                justification = "Não foi possível gerar um resumo válido para o documento."
+
+            # Verifica se o documento realmente é relevante
+            if target_match and not any(keyword in combined_content.lower() for keyword in ['rpa', 'automação', 'processo', 'robotizado', 'automatizado']):
+                print("\nDocumento não contém palavras-chave relevantes")
+                target_match = False
+                justification = "O documento não contém referências a RPA, automação de processos ou termos relacionados."
+
+            # Se o documento for uma cotação ou formulário administrativo, não é relevante
+            if any(keyword in combined_content.lower() for keyword in ['cotação', 'solicitação', 'formulário', 'processo de compra']):
+                print("\nDocumento é uma cotação ou formulário administrativo")
+                target_match = False
+                justification = "O documento é uma solicitação de cotação ou formulário administrativo, não contendo conteúdo relevante sobre RPA ou automação de processos."
+
+            final_result = {
+                "target_match": target_match,
+                "threshold_match": True,  # Mantido para compatibilidade
+                "target_summary": summary if target_match else "",
+                "document_summary": summary if target_match else "",
+                "justification": justification if not target_match else "",
+                "metadata": {}
             }
+            print("\n=== Resultado final ===")
+            print(f"Tipo do resultado final: {type(final_result)}")
+            print(f"Chaves no resultado final: {final_result.keys()}")
+            return final_result
 
         except Exception as e:
-            logger.error(f"Erro durante o processamento: {str(e)}")
+            logger.error(f"Erro ao processar documento: {str(e)}")
+            print(f"\n=== Erro durante o processamento ===")
+            print(f"Tipo do erro: {type(e)}")
+            print(f"Mensagem do erro: {str(e)}")
             return {
                 "target_match": False,
-                "summary": "",
-                "metadata": {},
-                "error": str(e)
+                "threshold_match": False,
+                "target_summary": "",
+                "document_summary": "",
+                "justification": f"Erro ao processar documento: {str(e)}",
+                "metadata": {}
             }
