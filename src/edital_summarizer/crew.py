@@ -81,13 +81,14 @@ class EditalSummarizer:
             },
         )
 
-    def kickoff(self, document_path: str, target: str, threshold: int = 500) -> dict:
+    def kickoff(self, document_path: str, target: str, threshold: int = 500, force_match: bool = False) -> dict:
         """Inicia o processamento do documento."""
         try:
             print("\n=== Iniciando processamento do documento ===")
             print(f"Documento: {document_path}")
             print(f"Target: {target}")
             print(f"Threshold: {threshold}")
+            print(f"Force Match: {force_match}")
 
             # Processa o documento
             print("\n=== Processando documento ===")
@@ -149,19 +150,25 @@ class EditalSummarizer:
 
             # Cria as tarefas
             print("\n=== Criando tarefas ===")
-            target_analysis_task = Task(
-                description=self.tasks_config["target_analysis_task"]["description"].format(
-                    target=target,
-                    document_content=combined_content
-                ),
-                expected_output=self.tasks_config["target_analysis_task"]["expected_output"],
-                agent=target_analyst
-            )
-            print(f"Tarefa target_analysis_task criada: {type(target_analysis_task)}")
-            print(f"Configuração da tarefa:")
-            print(f"- Descrição: {target_analysis_task.description[:100]}...")
-            print(f"- Expected Output: {target_analysis_task.expected_output}")
+            tasks = []
+            
+            # Se não for force_match, adiciona a tarefa de análise de target
+            if not force_match:
+                target_analysis_task = Task(
+                    description=self.tasks_config["target_analysis_task"]["description"].format(
+                        target=target,
+                        document_content=combined_content
+                    ),
+                    expected_output=self.tasks_config["target_analysis_task"]["expected_output"],
+                    agent=target_analyst
+                )
+                print(f"Tarefa target_analysis_task criada: {type(target_analysis_task)}")
+                print(f"Configuração da tarefa:")
+                print(f"- Descrição: {target_analysis_task.description[:100]}...")
+                print(f"- Expected Output: {target_analysis_task.expected_output}")
+                tasks.append(target_analysis_task)
 
+            # Adiciona a tarefa de resumo
             summary_task = Task(
                 description=self.tasks_config["summary_task"]["description"].format(
                     target=target,
@@ -174,25 +181,29 @@ class EditalSummarizer:
             print(f"Configuração da tarefa:")
             print(f"- Descrição: {summary_task.description[:100]}...")
             print(f"- Expected Output: {summary_task.expected_output}")
+            tasks.append(summary_task)
 
-            justification_task = Task(
-                description=self.tasks_config["justification_task"]["description"].format(
-                    target=target,
-                    document_content=combined_content
-                ),
-                expected_output=self.tasks_config["justification_task"]["expected_output"],
-                agent=justification_agent
-            )
-            print(f"Tarefa justification_task criada: {type(justification_task)}")
-            print(f"Configuração da tarefa:")
-            print(f"- Descrição: {justification_task.description[:100]}...")
-            print(f"- Expected Output: {justification_task.expected_output}")
+            # Se não for force_match, adiciona a tarefa de justificativa
+            if not force_match:
+                justification_task = Task(
+                    description=self.tasks_config["justification_task"]["description"].format(
+                        target=target,
+                        document_content=combined_content
+                    ),
+                    expected_output=self.tasks_config["justification_task"]["expected_output"],
+                    agent=justification_agent
+                )
+                print(f"Tarefa justification_task criada: {type(justification_task)}")
+                print(f"Configuração da tarefa:")
+                print(f"- Descrição: {justification_task.description[:100]}...")
+                print(f"- Expected Output: {justification_task.expected_output}")
+                tasks.append(justification_task)
 
             # Cria a crew
             print("\n=== Criando crew ===")
             crew = Crew(
                 agents=[target_analyst, summary_agent, justification_agent],
-                tasks=[target_analysis_task, summary_task, justification_task],
+                tasks=tasks,
                 verbose=True
             )
             print(f"Crew criada: {type(crew)}")
@@ -209,32 +220,37 @@ class EditalSummarizer:
             task_outputs = result.tasks_output if hasattr(result, 'tasks_output') else []
             print(f"Outputs das tarefas: {task_outputs}")
             
-            # Primeira tarefa é a análise de target
-            target_match = False
-            if len(task_outputs) > 0:
-                target_response = str(task_outputs[0]).strip().lower()
-                print(f"Resposta do analista de target: '{target_response}'")
-                
-                # Validação mais rigorosa da resposta
-                if target_response not in ['true', 'false']:
-                    print(f"Resposta inválida do analista de target: '{target_response}'")
-                    target_match = False
-                else:
-                    target_match = target_response == 'true'
-                
-                print(f"Target Match após processamento: {target_match}")
-            
-            # Segunda tarefa é o resumo
+            # Se for force_match, define target_match como True
+            target_match = force_match
             summary = ""
-            if len(task_outputs) > 1:  # Removida a condição de target_match
-                summary = str(task_outputs[1])
-                print(f"Resumo gerado: {summary[:200]}...")
-            
-            # Terceira tarefa é a justificativa
             justification = ""
-            if not target_match and len(task_outputs) > 2:
-                justification = str(task_outputs[2])
-                print(f"Justificativa gerada: {justification[:200]}...")
+
+            if force_match:
+                # Em modo force_match, apenas pega o resumo
+                if len(task_outputs) > 0:
+                    summary = str(task_outputs[0])
+            else:
+                # Processamento normal
+                if len(task_outputs) > 0:
+                    target_response = str(task_outputs[0]).strip().lower()
+                    print(f"Resposta do analista de target: '{target_response}'")
+                    
+                    # Validação mais rigorosa da resposta
+                    if target_response not in ['true', 'false']:
+                        print(f"Resposta inválida do analista de target: '{target_response}'")
+                        target_match = False
+                    else:
+                        target_match = target_response == 'true'
+                    
+                    print(f"Target Match após processamento: {target_match}")
+                
+                # Segunda tarefa é o resumo
+                if len(task_outputs) > 1:
+                    summary = str(task_outputs[1])
+                
+                # Terceira tarefa é a justificativa
+                if not target_match and len(task_outputs) > 2:
+                    justification = str(task_outputs[2])
 
             print(f"\nResultado final do processamento:")
             print(f"- Target Match: {target_match}")

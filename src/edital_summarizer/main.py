@@ -39,7 +39,7 @@ def process_edital(document_path: str, target: str, threshold: int = 500, force_
         summarizer = EditalSummarizer()
         
         # Processa o documento
-        result = summarizer.kickoff(document_path, target, threshold)
+        result = summarizer.kickoff(document_path, target, threshold, force_match)
         
         # Se force_match for True, força o target_match e usa o resumo gerado
         if force_match:
