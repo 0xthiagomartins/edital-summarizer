@@ -1,22 +1,3 @@
-# Remover completamente as tarefas antigas
-# research_task:
-#   description: >
-#     Conduct a thorough research about {topic}
-#     Make sure you find any interesting and relevant information given
-#     the current year is {current_year}.
-#   expected_output: >
-#     A list with 10 bullet points of the most relevant information about {topic}
-#   agent: researcher
-#
-# reporting_task:
-#   description: >
-#     Review the context you got and expand each topic into a full section for a report.
-#     Make sure the report is detailed and contains any and all relevant information.
-#   expected_output: >
-#     A fully fledged report with the main topics, each with a full section of information.
-#     Formatted as markdown without '```'
-#   agent: reporting_analyst
-
 target_analysis_task:
   description: |
     Analise o documento e determine se ele é relevante para o target: {target}
@@ -77,12 +58,13 @@ justification_task:
     A justificativa deve ser profissional e técnica, explicando o motivo da não geração do resumo.
     IMPORTANTE: 
     1. A justificativa DEVE ser em português
-    2. A justificativa DEVE ser clara e objetiva
-    3. NÃO inclua nenhum texto em inglês
-    4. NÃO inclua nenhum texto explicativo antes ou depois da justificativa
-    5. A justificativa DEVE explicar POR QUE o documento não é relevante para o target
-    6. NÃO mencione problemas de leitura ou processamento do documento
-    7. Foque em explicar a falta de relevância do conteúdo do documento para o target
+    2. A justificativa DEVE ser clara, objetiva e ter no máximo 3 frases.
+    3. Seja direto, não repita o contexto do edital.
+    4. NÃO inclua nenhum texto em inglês
+    5. NÃO inclua nenhum texto explicativo antes ou depois da justificativa
+    6. A justificativa DEVE explicar POR QUE o documento não é relevante para o target
+    7. NÃO mencione problemas de leitura ou processamento do documento
+    8. Foque em explicar a falta de relevância do conteúdo do documento para o target
 
     DOCUMENTO:
     {document_content}

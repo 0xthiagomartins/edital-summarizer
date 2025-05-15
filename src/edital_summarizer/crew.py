@@ -245,18 +245,6 @@ class EditalSummarizer:
                 print("\nResumo inválido gerado")
                 summary = "Não foi possível gerar um resumo válido para o documento."
 
-            # Verifica se o documento realmente é relevante
-            if target_match and not any(keyword in combined_content.lower() for keyword in ['rpa', 'automação', 'processo', 'robotizado', 'automatizado']):
-                print("\nDocumento não contém palavras-chave relevantes")
-                target_match = False
-                justification = "O documento não contém referências a RPA, automação de processos ou termos relacionados."
-
-            # Se o documento for uma cotação ou formulário administrativo, não é relevante
-            if any(keyword in combined_content.lower() for keyword in ['cotação', 'solicitação', 'formulário', 'processo de compra']):
-                print("\nDocumento é uma cotação ou formulário administrativo")
-                target_match = False
-                justification = "O documento é uma solicitação de cotação ou formulário administrativo, não contendo conteúdo relevante sobre RPA ou automação de processos."
-
             final_result = {
                 "target_match": target_match,
                 "threshold_match": True,  # Mantido para compatibilidade
