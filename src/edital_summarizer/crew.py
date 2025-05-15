@@ -9,7 +9,6 @@ import yaml
 from .tools.file_tools import SimpleFileReadTool
 from .tools.document_tools import DocumentSearchTool, TableExtractionTool
 from .processors.document import DocumentProcessor
-from .reports.excel import ExcelReportGenerator
 from .utils.logger import get_logger
 
 # Função utilitária para carregar arquivos YAML
