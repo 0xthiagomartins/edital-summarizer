@@ -4,18 +4,18 @@ from crewai.agents.agent_builder.base_agent import BaseAgent
 from typing import List, Dict, Any
 import os
 import json
+import yaml
 
 from .tools.file_tools import SimpleFileReadTool
 from .tools.document_tools import DocumentSearchTool, TableExtractionTool
 from .processors.document import DocumentProcessor
 from .reports.excel import ExcelReportGenerator
-from .config.agents import get_agents
-from .config.tasks import get_tasks
 from .utils.logger import get_logger
 
-# If you want to run a snippet of code before or after the crew starts,
-# you can use the @before_kickoff and @after_kickoff decorators
-# https://docs.crewai.com/concepts/crews#example-crew-class-with-decorators
+# Função utilitária para carregar arquivos YAML
+def load_yaml_config(path):
+    with open(path, 'r', encoding='utf-8') as f:
+        return yaml.safe_load(f)
 
 logger = get_logger(__name__)
 
@@ -25,8 +25,9 @@ class EditalSummarizer:
 
     def __init__(self, verbose: bool = False):
         self.verbose = verbose
-        self.agents_config = get_agents()
-        self.tasks_config = get_tasks()
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        self.agents_config = load_yaml_config(os.path.join(base_dir, 'config', 'agents.yaml'))
+        self.tasks_config = load_yaml_config(os.path.join(base_dir, 'config', 'tasks.yaml'))
         self.processor = DocumentProcessor()
 
     @agent
