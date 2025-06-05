@@ -1,72 +1,71 @@
 target_analysis_task:
   description: |
-    Analise o documento e determine se ele é relevante para o target: {target}
-    O target pode incluir uma descrição entre parênteses. Por exemplo:
-    - Se o target for "RPA (Automação de Processos Robotizados)", você deve verificar se o documento
-      menciona RPA, automação de processos, processos robotizados ou termos relacionados.
-    - Se o target for "Tablet (Dispositivo móvel)", você deve verificar se o documento
-      menciona tablets, dispositivos móveis ou termos relacionados.
+    Analise o documento fornecido para determinar se ele é relevante para o target '{target}' e se atende ao threshold mínimo de {threshold} unidades.
 
-    Considere tanto o termo principal quanto a descrição entre parênteses ao fazer a análise.
-    
-    CRITÉRIOS DE RELEVÂNCIA:
-    1. O documento DEVE conter referências diretas ao target ou termos relacionados
-    2. O documento DEVE ter conteúdo relevante para o contexto do target
-    3. Documentos que não mencionam o target ou termos relacionados NÃO são relevantes
-    4. Documentos que mencionam o target mas não têm conteúdo relevante NÃO são relevantes
-    5. Documentos que são apenas formulários, cotações ou documentos administrativos NÃO são relevantes
-    6. Documentos que não têm relação com o contexto do target NÃO são relevantes
-
-    IMPORTANTE: 
-    1. Retorne APENAS 'true' se o documento for relevante para o target
-    2. Retorne APENAS 'false' se o documento NÃO for relevante para o target
-    3. NÃO inclua nenhum outro texto na resposta
-    4. NÃO explique sua decisão
-    5. NÃO adicione pontuação ou espaços extras
-    6. Use APENAS letras minúsculas
+    IMPORTANTE:
+    1. O documento DEVE ser analisado em português
+    2. O documento DEVE ser analisado em relação ao target '{target}'
+    3. Se o target for relacionado a dispositivos (notebook, tablet, celular, etc.), verifique se a quantidade mencionada atende ao threshold mínimo de {threshold} unidades
+    4. Se a quantidade não puder ser determinada com certeza, retorne 'inconclusive'
+    5. Se a quantidade for menor que o threshold, retorne 'false'
+    6. Se a quantidade for maior ou igual ao threshold, retorne 'true'
+    7. Se o target não for relacionado a dispositivos, ignore o threshold e retorne 'true' se o documento for relevante
+    8. NÃO inclua nenhum texto explicativo antes ou depois da resposta
+    9. NÃO retorne um JSON ou qualquer outro formato
+    10. A resposta DEVE ser APENAS uma das seguintes opções: 'true', 'false' ou 'inconclusive'
 
     DOCUMENTO:
     {document_content}
-  expected_output: "true ou false"
+  expected_output: "true, false ou inconclusive"
   agent: target_analyst_agent
 
 summary_task:
   description: |
-    Gere um resumo executivo do documento, focando em aspectos relevantes para o target: {target}
-    O resumo deve ser conciso e informativo, destacando os pontos mais importantes relacionados ao target.
-    IMPORTANTE: 
-    1. O resumo DEVE ser em português
-    2. O resumo DEVE ser relevante para o target '{target}'
+    Gere um resumo executivo do documento fornecido, focando no target '{target}'.
+
+    IMPORTANTE:
+    1. O resumo DEVE ser baseado APENAS no conteúdo do documento fornecido
+    2. O resumo DEVE ser em português
     3. O resumo DEVE ser informativo e útil
     4. NÃO inclua nenhum texto em inglês
     5. NÃO inclua nenhum texto explicativo antes ou depois do resumo
     6. NÃO retorne "I now can give a great answer" ou qualquer outro texto em inglês
     7. O resumo DEVE ser um texto completo e coerente em português
+    8. NÃO gere um resumo genérico sobre o target
+    9. NÃO retorne um JSON ou qualquer outro formato
+    10. Se o documento não contiver informações suficientes, retorne uma justificativa clara
 
     DOCUMENTO:
     {document_content}
-  expected_output: "Resumo executivo em português"
+  expected_output: "Resumo do documento em português"
   agent: summary_agent
 
 justification_task:
   description: |
     Gere uma justificativa clara e objetiva para a não geração do resumo.
+
     Considere os seguintes cenários:
     1. Se o documento não for relevante para o target '{target}'
-    2. Se o número de referências ao target for menor que o threshold
-
-    A justificativa deve ser profissional e técnica, explicando o motivo da não geração do resumo.
-    IMPORTANTE: 
-    1. A justificativa DEVE ser em português
-    2. A justificativa DEVE ser clara, objetiva e ter no máximo 3 frases.
-    3. Seja direto, não repita o contexto do edital.
-    4. NÃO inclua nenhum texto em inglês
-    5. NÃO inclua nenhum texto explicativo antes ou depois da justificativa
-    6. A justificativa DEVE explicar POR QUE o documento não é relevante para o target
-    7. NÃO mencione problemas de leitura ou processamento do documento
-    8. Foque em explicar a falta de relevância do conteúdo do documento para o target
+    2. Se o número de referências ao target for menor que o threshold mínimo de {threshold} unidades
+    3. Se a quantidade não puder ser determinada com certeza (status: {threshold_status})
+    4. Se houver problemas na leitura do documento
+    5. Se o documento estiver vazio ou não contiver informações suficientes
 
     DOCUMENTO:
     {document_content}
-  expected_output: "Justificativa técnica em português explicando por que o documento não é relevante para o target"
+
+    A justificativa deve ser profissional e técnica, explicando o motivo da não geração do resumo.
+
+    IMPORTANTE:
+    1. A justificativa DEVE ser em português
+    2. A justificativa DEVE ser clara e objetiva
+    3. NÃO inclua nenhum texto em inglês
+    4. NÃO inclua nenhum texto explicativo antes ou depois da justificativa
+    5. NÃO retorne o mesmo texto do resumo
+    6. A justificativa DEVE explicar POR QUE o documento não é relevante ou não atende ao threshold
+    7. A justificativa DEVE ser baseada APENAS no conteúdo do documento fornecido
+    8. NÃO gere uma justificativa genérica, mas sim baseada no conteúdo específico do documento
+    9. NÃO retorne um JSON ou qualquer outro formato
+    10. NÃO retorne "I now can give a great answer" ou qualquer outro texto em inglês
+  expected_output: "Justificativa em português"
   agent: justification_agent

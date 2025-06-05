@@ -5,11 +5,14 @@ from typing import List, Dict, Any
 import os
 import json
 import yaml
+from pathlib import Path
 
 from .tools.file_tools import SimpleFileReadTool
 from .tools.document_tools import DocumentSearchTool, TableExtractionTool
+from .tools.quantity_tools import QuantityExtractionTool
 from .processors.document import DocumentProcessor
 from .utils.logger import get_logger
+from .utils.device_utils import is_device_target, check_device_threshold
 
 # Função utilitária para carregar arquivos YAML
 def load_yaml_config(path):
@@ -28,12 +31,17 @@ class EditalSummarizer:
         self.agents_config = load_yaml_config(os.path.join(base_dir, 'config', 'agents.yaml'))
         self.tasks_config = load_yaml_config(os.path.join(base_dir, 'config', 'tasks.yaml'))
         self.processor = DocumentProcessor()
+        self.quantity_tool = QuantityExtractionTool()
 
     @agent
     def target_analyst_agent(self) -> Agent:
         return Agent(
             config=self.agents_config["target_analyst_agent"],
-            tools=[SimpleFileReadTool(), DocumentSearchTool()],
+            tools=[
+                SimpleFileReadTool(),
+                DocumentSearchTool(),
+                QuantityExtractionTool()
+            ],
             verbose=True,
             llm_config={
                 "provider": "openai",
@@ -80,210 +88,135 @@ class EditalSummarizer:
             },
         )
 
-    def kickoff(self, document_path: str, target: str, threshold: int = 500, force_match: bool = False) -> dict:
-        """Inicia o processamento do documento."""
-        try:
-            print("\n=== Iniciando processamento do documento ===")
-            print(f"Documento: {document_path}")
-            print(f"Target: {target}")
-            print(f"Threshold: {threshold}")
-            print(f"Force Match: {force_match}")
+    def _is_device_target(self, target: str) -> bool:
+        """Verifica se o target é relacionado a dispositivos."""
+        device_keywords = ['tablet', 'celular', 'notebook', 'smartphone', 'laptop']
+        return any(keyword in target.lower() for keyword in device_keywords)
 
-            # Processa o documento
-            print("\n=== Processando documento ===")
-            document_data = self.processor.process_path(document_path)
-            print(f"Tipo de document_data: {type(document_data)}")
-            print(f"Chaves em document_data: {document_data.keys() if isinstance(document_data, dict) else 'N/A'}")
-            
-            # Obtém o conteúdo combinado dos documentos
-            combined_content = ""
-            if document_data.get('documents'):
-                print("\n=== Processando documentos ===")
-                for doc in document_data['documents']:
-                    print(f"\nDocumento encontrado:")
-                    print(f"- Tipo: {type(doc)}")
-                    print(f"- Chaves: {doc.keys() if isinstance(doc, dict) else 'N/A'}")
-                    if doc.get('content'):
-                        print(f"- Tamanho do conteúdo: {len(doc['content'])} caracteres")
-                        combined_content += f"\n\n=== {doc.get('file_name', 'Unknown')} ===\n\n"
-                        combined_content += doc['content']
-            
-            print(f"\nTamanho total do conteúdo combinado: {len(combined_content)} caracteres")
-            
-            if not combined_content:
-                print("\nNenhum conteúdo encontrado nos documentos")
-                return {
-                    "target_match": False,
-                    "threshold_match": False,
-                    "target_summary": "",
-                    "document_summary": "",
-                    "justification": "Não foi possível encontrar conteúdo nos documentos fornecidos.",
-                    "metadata": {}
-                }
+    def _process_target_response(self, response: str) -> Dict[str, str]:
+        """Processa a resposta do target analyst e retorna o status do threshold."""
+        response = response.lower().strip()
+        if response == "true":
+            return {"status": "true", "match": True}
+        elif response == "false":
+            return {"status": "false", "match": False}
+        else:
+            return {"status": "inconclusive", "match": False}
+
+    def kickoff(self, document_path: str, target: str, threshold: int = 500, force_match: bool = False) -> Dict[str, Any]:
+        """Inicia o processamento do edital."""
+        try:
+            # Lê o documento
+            with open(document_path, 'r', encoding='utf-8') as f:
+                text = f.read()
+
+            # Verifica se é um target de dispositivo
+            is_device = is_device_target(target)
+
+            # Se for dispositivo e threshold > 0, verifica o threshold
+            threshold_status = "inconclusive"
+            threshold_match = False
+            if is_device and threshold > 0:
+                # Extrai quantidades do texto
+                quantities = self.quantity_tool.extract(text)
+                
+                # Verifica se há quantidades suficientes
+                if quantities:
+                    total_quantity = sum(q["quantity"] for q in quantities)
+                    threshold_match = total_quantity >= threshold
+                    threshold_status = "true" if threshold_match else "false"
+                else:
+                    threshold_status = "inconclusive"
+            elif is_device and threshold == 0:
+                # Se threshold é 0, considera que não há verificação de quantidade
+                threshold_status = "true"
+                threshold_match = True
 
             # Cria os agentes
-            print("\n=== Criando agentes ===")
             target_analyst = Agent(
-                role=self.agents_config["target_analyst_agent"]["role"],
-                goal=self.agents_config["target_analyst_agent"]["goal"],
-                backstory=self.agents_config["target_analyst_agent"]["backstory"],
-                verbose=True
+                role="Target Analyst",
+                goal="Analisar se o documento é relevante para o target e validar a quantidade mínima de dispositivos",
+                backstory="""Você é um especialista em análise de documentos.
+                Sua função é determinar se o documento é relevante para o target especificado.
+                Se o target for relacionado a dispositivos e o threshold for maior que zero, você também deve verificar se a quantidade mencionada atende ao threshold mínimo.
+                Se não for possível determinar a quantidade, responda com 'Inconclusive'.""",
+                verbose=self.verbose
             )
-            print(f"Agente target_analyst criado: {type(target_analyst)}")
 
             summary_agent = Agent(
-                role=self.agents_config["summary_agent"]["role"],
-                goal=self.agents_config["summary_agent"]["goal"],
-                backstory=self.agents_config["summary_agent"]["backstory"],
-                verbose=True
+                role="Summary Agent",
+                goal="Gerar um resumo conciso do documento",
+                backstory="""Você é um especialista em resumir documentos.
+                Sua função é gerar um resumo claro e conciso do documento, destacando os pontos mais relevantes.""",
+                verbose=self.verbose
             )
-            print(f"Agente summary_agent criado: {type(summary_agent)}")
 
             justification_agent = Agent(
-                role=self.agents_config["justification_agent"]["role"],
-                goal=self.agents_config["justification_agent"]["goal"],
-                backstory=self.agents_config["justification_agent"]["backstory"],
-                verbose=True
+                role="Justification Agent",
+                goal="Fornecer uma justificativa clara para a decisão tomada",
+                backstory="""Você é um especialista em justificar decisões.
+                Sua função é fornecer uma justificativa clara e objetiva para a decisão tomada pelo Target Analyst.
+                Se o documento não for relevante, explique por quê.
+                Se a quantidade não atender ao threshold, explique por quê.""",
+                verbose=self.verbose
             )
-            print(f"Agente justification_agent criado: {type(justification_agent)}")
 
             # Cria as tarefas
-            print("\n=== Criando tarefas ===")
-            tasks = []
-            
-            # Se não for force_match, adiciona a tarefa de análise de target
-            if not force_match:
-                target_analysis_task = Task(
-                    description=self.tasks_config["target_analysis_task"]["description"].format(
-                        target=target,
-                        document_content=combined_content
-                    ),
-                    expected_output=self.tasks_config["target_analysis_task"]["expected_output"],
-                    agent=target_analyst
-                )
-                print(f"Tarefa target_analysis_task criada: {type(target_analysis_task)}")
-                print(f"Configuração da tarefa:")
-                print(f"- Descrição: {target_analysis_task.description[:100]}...")
-                print(f"- Expected Output: {target_analysis_task.expected_output}")
-                tasks.append(target_analysis_task)
+            target_analysis_task = Task(
+                description=f"""Analise o documento e determine se ele é relevante para o target '{target}'.
+                Se o target for relacionado a dispositivos e o threshold for maior que zero, verifique se a quantidade mencionada atende ao threshold de {threshold}.
+                Responda apenas com 'true', 'false' ou 'inconclusive'.""",
+                agent=target_analyst
+            )
 
-            # Adiciona a tarefa de resumo
             summary_task = Task(
-                description=self.tasks_config["summary_task"]["description"].format(
-                    target=target,
-                    document_content=combined_content
-                ),
-                expected_output=self.tasks_config["summary_task"]["expected_output"],
+                description="Gere um resumo conciso do documento, destacando os pontos mais relevantes.",
                 agent=summary_agent
             )
-            print(f"Tarefa summary_task criada: {type(summary_task)}")
-            print(f"Configuração da tarefa:")
-            print(f"- Descrição: {summary_task.description[:100]}...")
-            print(f"- Expected Output: {summary_task.expected_output}")
-            tasks.append(summary_task)
 
-            # Se não for force_match, adiciona a tarefa de justificativa
-            if not force_match:
-                justification_task = Task(
-                    description=self.tasks_config["justification_task"]["description"].format(
-                        target=target,
-                        document_content=combined_content
-                    ),
-                    expected_output=self.tasks_config["justification_task"]["expected_output"],
-                    agent=justification_agent
-                )
-                print(f"Tarefa justification_task criada: {type(justification_task)}")
-                print(f"Configuração da tarefa:")
-                print(f"- Descrição: {justification_task.description[:100]}...")
-                print(f"- Expected Output: {justification_task.expected_output}")
-                tasks.append(justification_task)
+            justification_task = Task(
+                description="""Forneça uma justificativa clara para a decisão tomada.
+                Se o documento não for relevante, explique por quê.
+                Se a quantidade não atender ao threshold, explique por quê.""",
+                agent=justification_agent
+            )
 
             # Cria a crew
-            print("\n=== Criando crew ===")
             crew = Crew(
                 agents=[target_analyst, summary_agent, justification_agent],
-                tasks=tasks,
-                verbose=True
+                tasks=[target_analysis_task, summary_task, justification_task],
+                verbose=self.verbose
             )
-            print(f"Crew criada: {type(crew)}")
 
             # Executa a crew
-            print("\n=== Executando crew ===")
             result = crew.kickoff()
-            print(f"Tipo do resultado: {type(result)}")
-            print(f"Conteúdo do resultado: {result}")
 
             # Processa o resultado
-            print("\n=== Processando resultado ===")
-            # O resultado vem como uma lista de outputs das tarefas
-            task_outputs = result.tasks_output if hasattr(result, 'tasks_output') else []
-            print(f"Outputs das tarefas: {task_outputs}")
-            
-            # Se for force_match, define target_match como True
-            target_match = force_match
-            summary = ""
-            justification = ""
+            target_response = self._process_target_response(result[0])
+            summary = result[1]
+            justification = result[2]
 
+            # Se force_match for True, força o target_match
             if force_match:
-                # Em modo force_match, apenas pega o resumo
-                if len(task_outputs) > 0:
-                    summary = str(task_outputs[0])
-            else:
-                # Processamento normal
-                if len(task_outputs) > 0:
-                    target_response = str(task_outputs[0]).strip().lower()
-                    print(f"Resposta do analista de target: '{target_response}'")
-                    
-                    # Validação mais rigorosa da resposta
-                    if target_response not in ['true', 'false']:
-                        print(f"Resposta inválida do analista de target: '{target_response}'")
-                        target_match = False
-                    else:
-                        target_match = target_response == 'true'
-                    
-                    print(f"Target Match após processamento: {target_match}")
-                
-                # Segunda tarefa é o resumo
-                if len(task_outputs) > 1:
-                    summary = str(task_outputs[1])
-                
-                # Terceira tarefa é a justificativa
-                if not target_match and len(task_outputs) > 2:
-                    justification = str(task_outputs[2])
+                target_response["match"] = True
+                target_response["status"] = "true"
 
-            print(f"\nResultado final do processamento:")
-            print(f"- Target Match: {target_match}")
-            print(f"- Tamanho do resumo: {len(summary)} caracteres")
-            print(f"- Tamanho da justificativa: {len(justification)} caracteres")
-
-            # Verifica se o resumo gerado é válido
-            if not summary:
-                print("\nResumo inválido gerado")
-                summary = "Não foi possível gerar um resumo válido para o documento."
-
-            final_result = {
-                "target_match": target_match,
-                "threshold_match": True,  # Mantido para compatibilidade
-                "target_summary": summary,  # Sempre inclui o resumo
-                "document_summary": summary,  # Sempre inclui o resumo
-                "justification": justification if not target_match else "",
-                "metadata": {}
+            return {
+                "target_match": target_response["match"],
+                "threshold_match": threshold_match,
+                "threshold_status": threshold_status,
+                "target_summary": summary,
+                "document_summary": summary,
+                "justification": justification
             }
-            print("\n=== Resultado final ===")
-            print(f"Tipo do resultado final: {type(final_result)}")
-            print(f"Chaves no resultado final: {final_result.keys()}")
-            return final_result
 
         except Exception as e:
-            logger.error(f"Erro ao processar documento: {str(e)}")
-            print(f"\n=== Erro durante o processamento ===")
-            print(f"Tipo do erro: {type(e)}")
-            print(f"Mensagem do erro: {str(e)}")
+            logger.error(f"Erro ao processar edital: {str(e)}")
             return {
                 "target_match": False,
                 "threshold_match": False,
+                "threshold_status": "inconclusive",
                 "target_summary": "",
                 "document_summary": "",
-                "justification": f"Erro ao processar documento: {str(e)}",
-                "metadata": {}
+                "justification": f"Erro ao processar edital: {str(e)}"
             }

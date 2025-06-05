@@ -16,23 +16,14 @@ from edital_summarizer.processors.document import DocumentProcessor
 from edital_summarizer.processors.metadata import MetadataProcessor
 from edital_summarizer.processors.summary import SummaryProcessor
 from edital_summarizer.utils.logger import get_logger
+from edital_summarizer.utils.device_utils import is_device_target, check_device_threshold
+from edital_summarizer.schemas import EditalResponse
 
 warnings.filterwarnings("ignore", category=SyntaxWarning, module="pysbd")
 
 logger = get_logger(__name__)
 
-def is_device_target(target: str) -> bool:
-    """Verifica se o target é relacionado a dispositivos."""
-    device_keywords = ['tablet', 'celular', 'notebook', 'smartphone', 'laptop']
-    return any(keyword in target.lower() for keyword in device_keywords)
-
-def check_device_threshold(text: str, threshold: int) -> bool:
-    """Verifica se o texto contém referências suficientes a dispositivos."""
-    device_keywords = ['tablet', 'celular', 'notebook', 'smartphone', 'laptop']
-    count = sum(text.lower().count(keyword) for keyword in device_keywords)
-    return count >= threshold
-
-def process_edital(document_path: str, target: str, threshold: int = 500, force_match: bool = False, verbose: bool = False, output_file: str = "llmResponse.json") -> dict:
+def process_edital(document_path: str, target: str, threshold: int = 500, force_match: bool = False, verbose: bool = False, output_file: str = "llmResponse.json") -> EditalResponse:
     """Processa um edital e retorna o resultado."""
     try:
         # Inicializa o processador
@@ -43,46 +34,51 @@ def process_edital(document_path: str, target: str, threshold: int = 500, force_
         
         # Se force_match for True, força o target_match e usa o resumo gerado
         if force_match:
-            return {
-                "target_match": True,  # Força o target_match
-                "threshold_match": True,
-                "target_summary": result["document_summary"],  # Usa o resumo gerado
-                "document_summary": result["document_summary"],  # Usa o resumo gerado
-                "justification": "",  # Limpa a justificativa já que forçamos o match
-                "metadata": {}
-            }
+            return EditalResponse(
+                target_match=True,  # Força o target_match
+                threshold_match=True,
+                threshold_status="true",
+                target_summary=result["document_summary"],  # Usa o resumo gerado
+                document_summary=result["document_summary"],  # Usa o resumo gerado
+                justification="",  # Limpa a justificativa já que forçamos o match
+                metadata={}
+            )
         
         # Se não houver match e não for forçado, retorna a justificativa
         if not result["target_match"]:
-            return {
-                "target_match": False,
-                "threshold_match": True,
-                "target_summary": "",
-                "document_summary": "",
-                "justification": result["justification"],
-                "metadata": {}
-            }
+            return EditalResponse(
+                target_match=False,
+                threshold_match=False,
+                threshold_status=result.get("threshold_status", "inconclusive"),
+                target_summary="",
+                document_summary="",
+                justification=result["justification"],
+                metadata={}
+            )
         
         # Se houver match, retorna o resumo
-        return {
-            "target_match": result["target_match"],
-            "threshold_match": True,
-            "target_summary": result["target_summary"],
-            "document_summary": result["document_summary"],
-            "justification": result["justification"],
-            "metadata": {}
-        }
+        return EditalResponse(
+            target_match=result["target_match"],
+            threshold_match=result.get("threshold_match", False),
+            threshold_status=result.get("threshold_status", "inconclusive"),
+            target_summary=result["target_summary"],
+            document_summary=result["document_summary"],
+            justification=result["justification"],
+            metadata={}
+        )
         
     except Exception as e:
         logger.error(f"Erro ao processar edital: {str(e)}")
-        return {
-            "target_match": False,
-            "threshold_match": False,
-            "target_summary": "",
-            "document_summary": "",
-            "justification": f"Erro ao processar edital: {str(e)}",
-            "metadata": {}
-        }
+        return EditalResponse(
+            target_match=False,
+            threshold_match=False,
+            threshold_status="inconclusive",
+            target_summary="",
+            document_summary="",
+            justification=f"Erro ao processar edital: {str(e)}",
+            metadata={},
+            error=str(e)
+        )
 
 def parse_args():
     """Parse command line arguments."""

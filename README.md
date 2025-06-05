@@ -101,124 +101,96 @@ O script irá:
 
 # Edital Summarizer
 
-Sistema para processamento e análise de editais de licitação utilizando IA.
+Processador de editais de licitação utilizando a CrewAI para análise e resumo de documentos.
 
-## Uso do Processador de Editais
+## Funcionalidades
 
-O script `process_edital.bat` permite processar editais de forma automatizada. Ele suporta arquivos individuais, diretórios e arquivos ZIP.
+- Análise de relevância de documentos para targets específicos
+- Validação de threshold mínimo para dispositivos
+- Geração de resumos executivos
+- Extração de metadados
+- Suporte a múltiplos formatos de documento (PDF, DOCX, TXT, etc.)
 
-### Sintaxe
+## Instalação
 
-```cmd
-process_edital.bat [caminho_do_edital] [target] [threshold] [arquivo_saida] [force_match]
+```bash
+pip install edital-summarizer
 ```
 
-### Parâmetros
+## Uso
 
-1. `caminho_do_edital` (obrigatório)
-   - Caminho para o arquivo ou diretório do edital
-   - Pode ser um arquivo individual, diretório ou arquivo ZIP
-   - Exemplos:
-     - `samples/edital-001`
-     - `samples/edital-001.zip`
-     - `C:\Users\SDS\Documents\editais\edital-001`
+### Via Linha de Comando
 
-2. `target` (obrigatório)
-   - Termo ou descrição para análise
-   - Pode incluir descrição entre parênteses
-   - Exemplos:
-     - `RPA`
-     - `RPA (Automação de Processos Robotizados)`
-     - `Tablet (Dispositivo móvel)`
-
-3. `threshold` (opcional, padrão: 500)
-   - Valor mínimo para contagem de referências
-   - Usado principalmente para targets de dispositivos
-   - Exemplo: `500`
-
-4. `arquivo_saida` (opcional, padrão: resultado.json)
-   - Nome do arquivo JSON de saída
-   - Exemplos:
-     - `meu_resultado.json`
-     - `output/resultado.json`
-
-5. `force_match` (opcional, padrão: false)
-   - Força o target_match a ser True
-   - Útil para testar o processamento dos metadados
-   - Valores: `true` ou `false`
-
-### Exemplos de Uso
-
-1. Uso básico (recomendado):
-```cmd
-process_edital.bat samples/edital-001 "RPA (Automação de Processos Robotizados)" 500 resultado.json
+```bash
+edital-summarizer <caminho_do_documento> --target "notebook" --threshold 500
 ```
 
-2. Processar arquivo ZIP:
-```cmd
-process_edital.bat samples/edital-001.zip "RPA (Automação de Processos Robotizados)" 500 resultado.json
+Parâmetros:
+- `caminho_do_documento`: Caminho para o documento ou diretório de documentos
+- `--target`: Target para análise (ex: "notebook", "tablet", "RPA")
+- `--threshold`: Threshold mínimo para dispositivos (padrão: 500)
+- `--force-match`: Força o target_match a ser True
+- `--output`: Caminho para o arquivo de saída (padrão: "resultado.json")
+- `-v, --verbose`: Ativa modo verboso para exibir logs detalhados
+
+### Via Python
+
+```python
+from edital_summarizer import process_edital
+
+result = process_edital(
+    document_path="caminho/do/documento.pdf",
+    target="notebook",
+    threshold=500,
+    force_match=False,
+    verbose=True
+)
 ```
 
-3. Processar diretório:
-```cmd
-process_edital.bat samples/editais "Tablet (Dispositivo móvel)" 300 output/resultado.json
-```
+## Formato da Resposta
 
-4. Forçar target_match (para testes):
-```cmd
-process_edital.bat samples/edital-001 "RPA" 500 resultado.json true
-```
-
-5. Uso mínimo (apenas caminho e target):
-```cmd
-process_edital.bat samples/edital-001 "RPA"
-```
-
-6. Uso com caminho absoluto:
-```cmd
-process_edital.bat C:\Users\SDS\Documents\editais\edital-001 "RPA" 500 resultado.json
-```
-
-### Formato de Saída
-
-O arquivo JSON de saída terá o seguinte formato:
+A resposta é um objeto JSON com os seguintes campos:
 
 ```json
 {
-  "target_match": true/false,
-  "threshold_match": true/false,
-  "summary": "resumo executivo (se target_match for true)",
-  "metadata": {
-    "identifier": {
-      "public_notice": "...",
-      "process_id": "...",
-      "bid_number": "..."
+    "target_match": true,           // Indica se o documento é relevante para o target
+    "threshold_match": true,        // Indica se o documento atende ao threshold mínimo
+    "threshold_status": "true",     // Status do threshold: "true", "false" ou "inconclusive"
+    "target_summary": "...",        // Resumo específico sobre o target no documento
+    "document_summary": "...",      // Resumo geral do documento
+    "justification": "...",         // Justificativa para não geração do resumo
+    "metadata": {                   // Metadados do documento
+        "identifier": {
+            "public_notice": "...",
+            "process_id": "...",
+            "bid_number": "..."
+        },
+        "organization": {
+            "name": "...",
+            "location": "..."
+        }
     },
-    "organization": {
-      "organization": "...",
-      "phone": "...",
-      "website": "...",
-      "location": "..."
-    },
-    "subject": {
-      "title": "...",
-      "object": "...",
-      "dates": "..."
-    }
-  }
+    "error": null                   // Mensagem de erro, se houver
 }
 ```
 
-### Observações
+## Threshold
 
-- O script suporta arquivos ZIP aninhados (ZIPs dentro de ZIPs)
-- Arquivos ocultos e temporários são ignorados automaticamente
-- O processamento é feito no WSL Ubuntu
-- Os arquivos temporários são limpos automaticamente após o processamento
-- Para testar apenas o processamento de metadados, use o parâmetro `force_match=true`
-- O threshold é especialmente importante para targets de dispositivos (tablet, celular, notebook, etc.)
-- O script escapa automaticamente caracteres especiais no target (parênteses, espaços, etc.)
+O threshold é uma funcionalidade que permite validar a quantidade mínima de dispositivos mencionada no documento. Por exemplo, se o target for "notebook" e o threshold for 500, o documento só será considerado relevante se mencionar uma quantidade de notebooks maior ou igual a 500.
 
-C:\Users\SDS\Documents\edital-summarizer\process_edital.bat /mnt/c/Users/SDS/Documents/edital-1747239577377-j5y0mtp8 "RPA (Automação de Processos Robotizados)" 500 llmResponse.json
+O status do threshold pode ser:
+- `"true"`: A quantidade mencionada é maior ou igual ao threshold
+- `"false"`: A quantidade mencionada é menor que o threshold
+- `"inconclusive"`: Não foi possível determinar a quantidade com certeza
 
-C:\\Users\\SDS\\Documents\\edital-summarizer\\process_edital.bat //mnt//c//Users//SDS//Documents//edital-1747240054638-ifpkr1k4 "RPA (Automação de Processos Robotizados)" 500 llmResponse.json
+## Contribuindo
+
+1. Faça um fork do projeto
+2. Crie uma branch para sua feature (`git checkout -b feature/nova-feature`)
+3. Faça commit das suas mudanças (`git commit -am 'Adiciona nova feature'`)
+4. Faça push para a branch (`git push origin feature/nova-feature`)
+5. Crie um Pull Request
+
+## Licença
+
+Este projeto está licenciado sob a licença MIT - veja o arquivo [LICENSE](LICENSE) para mais detalhes.
