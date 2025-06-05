@@ -34,6 +34,8 @@ summary_task:
     8. NÃO gere um resumo genérico sobre o target
     9. NÃO retorne um JSON ou qualquer outro formato
     10. Se o documento não contiver informações suficientes, retorne uma justificativa clara
+    11. A resposta DEVE ser APENAS o resumo em português, sem nenhum texto adicional
+    12. NÃO inclua palavras como "Thought:", "Final Answer:" ou qualquer outro prefixo
 
     DOCUMENTO:
     {document_content}

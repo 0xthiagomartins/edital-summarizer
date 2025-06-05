@@ -1,14 +1,14 @@
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel, Field
-from langchain.tools import BaseTool
+from crewai.tools import BaseTool
 import re
 from decimal import Decimal
 
 class QuantityExtractionToolInput(BaseModel):
     """Input schema for QuantityExtractionTool."""
     text: str = Field(..., description="The text to extract quantities from.")
-    target_keywords: List[str] = Field(..., description="List of keywords to look for quantities.")
-    context_window: int = Field(100, description="Number of characters to look around the number.")
+    target_keywords: List[str] = Field(default=["notebook", "tablet", "celular", "smartphone", "laptop"], description="List of keywords to look for quantities.")
+    context_window: int = Field(default=100, description="Number of characters to look around the number.")
 
 class QuantityExtractionTool(BaseTool):
     name: str = "Quantity Extraction Tool"
@@ -18,7 +18,7 @@ class QuantityExtractionTool(BaseTool):
     )
     args_schema: type[BaseModel] = QuantityExtractionToolInput
 
-    def _run(self, text: str, target_keywords: List[str], context_window: int = 100) -> str:
+    def _run(self, text: str, target_keywords: List[str] = None, context_window: int = 100) -> str:
         """
         Extract quantities and their context from text.
         
@@ -30,6 +30,9 @@ class QuantityExtractionTool(BaseTool):
         Returns:
             JSON string with found quantities and their context
         """
+        if target_keywords is None:
+            target_keywords = ["notebook", "tablet", "celular", "smartphone", "laptop"]
+            
         results = []
         
         # Normalize text and keywords
@@ -55,7 +58,7 @@ class QuantityExtractionTool(BaseTool):
                 normalized_number = self._normalize_number(number)
                 
                 result = {
-                    "number": normalized_number,
+                    "number": float(normalized_number),
                     "original": number,
                     "unit": unit,
                     "context": context.strip(),
