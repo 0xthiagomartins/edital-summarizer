@@ -1,32 +1,58 @@
 [project]
-name = "edital_summarizer"
-version = "0.2.0"
-description = "Processador de editais utilizando a CrewAI"
-readme = "README.md"
-requires-python = ">=3.10"
-license = "MIT"
-authors = [{ name = "Thiago Martins", email = "t.martins@samsung.com" }]
+name = "edital-summarizer"
+version = "0.1.0"
+description = "Processador de editais de licitação utilizando CrewAI"
+authors = [
+    {name = "Samsung SDS", email = "sds@samsung.com"}
+]
 dependencies = [
-    "crewai>=0.28.0",
-    "langchain>=0.1.0",
-    "python-dotenv>=1.0.0",
-    "openai>=1.1.0",
-    "anthropic>=0.5.0",
+    "crewai>=0.118.0",
+    "python-docx>=0.8.11",
+    "PyPDF2>=3.0.0",
+    "python-pptx>=0.6.21",
     "openpyxl>=3.1.2",
-    "pypdf>=3.15.1",
-    "pysbd>=0.3.4",
-    "docx2txt>=0.8",
-    "google-generativeai>=0.3.0", # Para o Gemini
-    "litellm>=1.7.0",             # Para integração de vários providers com CrewAI
-    "pandas>=2.0.0",
+    "python-dotenv>=1.0.0",
+    "typer>=0.9.0",
+    "rich>=13.7.0",
+    "pandas>=2.1.0",
+    "chardet>=5.2.0"
+]
+requires-python = ">=3.10,<3.13"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "black>=23.7.0",
+    "isort>=5.12.0",
+    "mypy>=1.5.1",
+    "ruff>=0.0.284",
 ]
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
-[project.scripts]
-edital-summarizer = "edital_summarizer.main:run"
+[tool.black]
+line-length = 88
+target-version = ["py310"]
+
+[tool.isort]
+profile = "black"
+multi_line_output = 3
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+ignore_missing_imports = true
 
 [tool.ruff]
 line-length = 88
+target-version = "py310"
+select = ["E", "F", "B", "I"]
+ignore = []
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/edital_summarizer"]

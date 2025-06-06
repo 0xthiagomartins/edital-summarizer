@@ -13,6 +13,10 @@ target_analysis_task:
     8. NÃO inclua nenhum texto explicativo antes ou depois da resposta
     9. NÃO retorne um JSON ou qualquer outro formato
     10. A resposta DEVE ser APENAS uma das seguintes opções: 'true', 'false' ou 'inconclusive'
+    11. Se o documento estiver vazio ou contiver muito pouco conteúdo, retorne 'false'
+    12. Considere variações de termos (ex: "equipamentos eletrônicos" pode incluir tablets)
+    13. Analise o objeto da licitação em detalhes
+    14. Seja assertivo na resposta, evitando "inconclusive" quando possível
 
     DOCUMENTO:
     {document_content}
@@ -36,6 +40,16 @@ summary_task:
     10. Se o documento não contiver informações suficientes, retorne uma justificativa clara
     11. A resposta DEVE ser APENAS o resumo em português, sem nenhum texto adicional
     12. NÃO inclua palavras como "Thought:", "Final Answer:" ou qualquer outro prefixo
+    13. O resumo DEVE conter:
+        - Objeto da licitação
+        - Quantidade de itens (se mencionada)
+        - Principais especificações técnicas
+        - Prazo de entrega (se mencionado)
+        - Valor estimado (se mencionado)
+    14. Se não encontrar informações suficientes, retorne: "Edital de licitação para {target}. Conteúdo disponível para análise, mas não foi possível gerar um resumo detalhado."
+    15. Organize as informações em tópicos claros
+    16. Destaque informações relevantes para o target
+    17. Seja específico e evite generalizações
 
     DOCUMENTO:
     {document_content}
@@ -69,5 +83,11 @@ justification_task:
     8. NÃO gere uma justificativa genérica, mas sim baseada no conteúdo específico do documento
     9. NÃO retorne um JSON ou qualquer outro formato
     10. NÃO retorne "I now can give a great answer" ou qualquer outro texto em inglês
+    11. Se o documento estiver vazio ou contiver muito pouco conteúdo, retorne: "O documento está vazio ou contém muito pouco conteúdo para análise."
+    12. Se o documento contiver conteúdo mas não for possível determinar a relevância, retorne: "O documento contém conteúdo, mas não foi possível determinar com certeza sua relevância para o target '{target}'."
+    13. Mencione aspectos específicos do documento que justificam a decisão
+    14. Seja técnico e objetivo na justificativa
+    15. Evite justificativas genéricas
+
   expected_output: "Justificativa em português"
   agent: justification_agent

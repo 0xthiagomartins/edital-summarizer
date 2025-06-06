@@ -1,10 +1,9 @@
 import os
-import re
 import pypdf
 import zipfile
 import tempfile
 import shutil
-from typing import Type, Optional, List
+from typing import Type
 from pydantic import BaseModel, Field
 from crewai.tools import BaseTool
 

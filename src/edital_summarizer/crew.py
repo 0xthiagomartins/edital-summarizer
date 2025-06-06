@@ -3,9 +3,7 @@ from crewai.project import CrewBase, agent, crew, task
 from crewai.agents.agent_builder.base_agent import BaseAgent
 from typing import List, Dict, Any
 import os
-import json
 import yaml
-from pathlib import Path
 import PyPDF2
 import zipfile
 import tempfile
@@ -14,12 +12,8 @@ import shutil
 from .tools.file_tools import SimpleFileReadTool
 from .tools.document_tools import DocumentSearchTool, TableExtractionTool
 from .tools.quantity_tools import QuantityExtractionTool
-from .processors.document import DocumentProcessor
 from .utils.logger import get_logger
-from .utils.device_utils import is_device_target, check_device_threshold
-from .utils.zip_handler import ZipHandler
 
-# Função utilitária para carregar arquivos YAML
 def load_yaml_config(path):
     with open(path, 'r', encoding='utf-8') as f:
         return yaml.safe_load(f)
@@ -112,9 +106,7 @@ class EditalSummarizer:
         base_dir = os.path.dirname(os.path.abspath(__file__))
         self.agents_config = load_yaml_config(os.path.join(base_dir, 'config', 'agents.yaml'))
         self.tasks_config = load_yaml_config(os.path.join(base_dir, 'config', 'tasks.yaml'))
-        self.processor = DocumentProcessor()
         self.quantity_tool = QuantityExtractionTool()
-        self.zip_handler = ZipHandler()
 
     @agent
     def target_analyst_agent(self) -> Agent:
@@ -186,61 +178,34 @@ class EditalSummarizer:
         else:
             return {"status": "inconclusive", "match": False}
 
-    def kickoff(self, document_path: str, target: str, threshold: int = 500, force_match: bool = False) -> Dict[str, Any]:
+    def kickoff(self, edital_path_dir: str, target: str, threshold: int = 500, force_match: bool = False) -> Dict[str, Any]:
         """Inicia o processamento do edital."""
         try:
-            logger.info(f"Iniciando processamento do documento: {document_path}")
-            logger.info(f"Target: {target}")
-            logger.info(f"Threshold: {threshold}")
-            logger.info(f"Force Match: {force_match}")
+            logger.warning(f"Processando: {edital_path_dir}")
 
-            # Verifica se é um arquivo ZIP
-            if self.zip_handler.is_zip_file(document_path):
-                logger.info("Documento é um arquivo ZIP")
-                text = process_zip(document_path)
-            # Verifica se é um diretório
-            elif os.path.isdir(document_path):
-                logger.info("Documento é um diretório")
-                # Processa todos os arquivos no diretório
-                all_text = ""
-                for root, _, files in os.walk(document_path):
-                    for file in files:
-                        file_path = os.path.join(root, file)
-                        logger.info(f"Processando arquivo: {file_path}")
-                        if file.endswith('.pdf'):
-                            # Lê arquivo PDF
-                            pdf_text = read_pdf(file_path)
-                            if pdf_text:
-                                all_text += f"\n\n=== {file} ===\n\n{pdf_text}"
-                                logger.info(f"PDF processado com sucesso: {file}")
-                            else:
-                                logger.warning(f"PDF não retornou texto: {file}")
-                        elif file.endswith(('.txt', '.docx', '.doc', '.md')):
-                            file_text = read_text_file(file_path)
-                            if file_text:
-                                all_text += f"\n\n=== {file} ===\n\n{file_text}"
-                                logger.info(f"Arquivo de texto processado com sucesso: {file}")
-                            else:
-                                logger.warning(f"Arquivo de texto não retornou conteúdo: {file}")
+            # Processa todos os arquivos no diretório
+            all_text = ""
+            for root, _, files in os.walk(edital_path_dir):
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    if file.endswith('.pdf'):
+                        # Lê arquivo PDF
+                        pdf_text = read_pdf(file_path)
+                        if pdf_text:
+                            all_text += f"\n\n=== {file} ===\n\n{pdf_text}"
+                    elif file.endswith(('.txt', '.docx', '.doc', '.md')):
+                        file_text = read_text_file(file_path)
+                        if file_text:
+                            all_text += f"\n\n=== {file} ===\n\n{file_text}"
                 text = all_text
-            else:
-                # Lê o documento único
-                logger.info("Documento é um arquivo único")
-                if document_path.endswith('.pdf'):
-                    text = read_pdf(document_path)
-                else:
-                    text = read_text_file(document_path)
 
             # Verifica se o texto está vazio
             if not text.strip():
                 logger.error("Nenhum texto foi extraído dos documentos")
                 raise ValueError("Nenhum texto foi extraído dos documentos")
 
-            logger.info(f"Texto extraído com sucesso. Tamanho: {len(text)} caracteres")
-            logger.debug(f"Primeiros 500 caracteres do texto: {text[:500]}")
-
             # Verifica se é um target de dispositivo
-            is_device = is_device_target(target)
+            is_device = self._is_device_target(target)
             logger.info(f"Target é dispositivo: {is_device}")
 
             # Se for dispositivo e threshold > 0, verifica o threshold
@@ -260,6 +225,7 @@ class EditalSummarizer:
                             if not isinstance(quantities_list, list):
                                 logger.warning(f"Quantidades não é uma lista: {type(quantities_list)}")
                                 threshold_status = "inconclusive"
+                                threshold_match = False
                             else:
                                 total_quantity = sum(q.get("number", 0) for q in quantities_list)
                                 threshold_match = total_quantity >= threshold
@@ -268,16 +234,24 @@ class EditalSummarizer:
                         except Exception as e:
                             logger.error(f"Erro ao processar quantidades: {str(e)}")
                             threshold_status = "inconclusive"
+                            threshold_match = False
                     else:
                         logger.warning("Nenhuma quantidade encontrada ou string vazia")
                         threshold_status = "inconclusive"
+                        threshold_match = False
                 except Exception as e:
                     logger.error(f"Erro ao extrair quantidades: {str(e)}")
                     threshold_status = "inconclusive"
+                    threshold_match = False
             elif is_device and threshold == 0:
                 logger.info("Threshold é 0, considerando como true")
-                threshold_status = "true"
                 threshold_match = True
+                threshold_status = "true"
+
+            # Limite de texto para o LLM (ex: 4.000 caracteres)
+            max_summary_chars = 4000
+            text_for_summary = text[:max_summary_chars]
+            logger.info(f"Primeiros 500 caracteres enviados ao agente de resumo: {text_for_summary[:500]}")
 
             # Cria os agentes
             target_analyst = Agent(
@@ -318,15 +292,47 @@ class EditalSummarizer:
             )
 
             summary_task = Task(
-                description="Gere um resumo conciso do documento, destacando os pontos mais relevantes.",
+                description=(
+                    f"Gere um resumo executivo do documento fornecido, focando no target '{target}'.\n"
+                    "IMPORTANTE:\n"
+                    "1. O resumo DEVE ser baseado APENAS no conteúdo do documento fornecido.\n"
+                    "2. O resumo DEVE ser em português.\n"
+                    "3. O resumo DEVE ser informativo e útil.\n"
+                    "4. NÃO inclua nenhum texto em inglês.\n"
+                    "5. NÃO inclua nenhum texto explicativo antes ou depois do resumo.\n"
+                    "6. NÃO retorne 'Thought:', 'Final Answer:', 'Não há contexto', 'Preciso de mais informações', ou qualquer justificativa.\n"
+                    "7. O resumo DEVE ser um texto completo e coerente em português.\n"
+                    "8. NÃO gere um resumo genérico sobre o target.\n"
+                    "9. NÃO retorne um JSON ou qualquer outro formato.\n"
+                    "10. Se o documento não contiver informações suficientes, retorne: 'Edital de licitação para {target}'.\n"
+                    "11. A resposta DEVE ser APENAS o resumo em português, sem nenhum texto adicional.\n"
+                    "12. NÃO inclua palavras como 'Thought:', 'Final Answer:' ou qualquer outro prefixo.\n"
+                    "13. O resumo DEVE conter:\n"
+                    "    - Objeto da licitação\n"
+                    "    - Quantidade de itens (se mencionada)\n"
+                    "    - Principais especificações técnicas\n"
+                    "    - Prazo de entrega (se mencionado)\n"
+                    "    - Valor estimado (se mencionado)\n\n"
+                    f"DOCUMENTO:\n{text_for_summary}"
+                ),
                 agent=summary_agent,
-                expected_output="Resumo do documento em português"
+                expected_output="Resumo do documento em português",
+                input=text_for_summary
             )
 
             justification_task = Task(
-                description="""Forneça uma justificativa clara para a decisão tomada.
+                description=f"""Forneça uma justificativa clara para a decisão tomada.
                 Se o documento não for relevante, explique por quê.
-                Se a quantidade não atender ao threshold, explique por quê.""",
+                Se a quantidade não atender ao threshold de {threshold}, explique por quê.
+                A justificativa DEVE ser baseada APENAS no conteúdo do documento fornecido.
+                NÃO gere uma justificativa genérica ou teórica.
+                NÃO inclua nenhum texto em inglês.
+                NÃO inclua nenhum texto explicativo antes ou depois da justificativa.
+                NÃO retorne 'Thought:', 'Final Answer:' ou qualquer outro prefixo.
+                A resposta DEVE ser APENAS a justificativa em português, sem nenhum texto adicional.
+
+                DOCUMENTO:
+                {text_for_summary}""",
                 agent=justification_agent,
                 expected_output="Justificativa em português"
             )
@@ -352,31 +358,71 @@ class EditalSummarizer:
                 summary = result.tasks_output[1].raw
                 justification = result.tasks_output[2].raw
 
-                logger.info(f"Target response: {target_response}")
-                logger.info(f"Summary: {summary}")
-                logger.info(f"Justification: {justification}")
+                # Pós-processamento do resumo para evitar lixo em inglês
+                summary_lower = summary.lower()
+                if (
+                    'i now can give a great answer' in summary_lower or
+                    'thought:' in summary_lower or
+                    'final answer:' in summary_lower or
+                    'não há contexto' in summary_lower or
+                    'preciso de mais informações' in summary_lower or
+                    any(word in summary for word in ['context', 'information', 'answer', 'english'])
+                ):
+                    # Se o resumo for inválido, verifica se temos informações suficientes
+                    if not text.strip() or len(text.strip()) < 100:
+                        target_response["match"] = False
+                        summary = f'Edital de licitação para {target}.'
+                        justification = f"O documento está vazio ou contém muito pouco conteúdo para análise."
+                    else:
+                        # Se temos conteúdo mas o resumo falhou, tenta gerar um resumo básico
+                        summary = f'Edital de licitação para {target}. Conteúdo disponível para análise, mas não foi possível gerar um resumo detalhado.'
 
-                # Se force_match for True, força o target_match
+                # Pós-processamento da justificativa
+                justification_lower = justification.lower()
+                if (
+                    'thought:' in justification_lower or
+                    'final answer:' in justification_lower or
+                    'não há contexto' in justification_lower or
+                    'preciso de mais informações' in justification_lower or
+                    any(word in justification for word in ['context', 'information', 'answer', 'english'])
+                ):
+                    if not text.strip() or len(text.strip()) < 100:
+                        justification = f"O documento está vazio ou contém muito pouco conteúdo para análise."
+                    else:
+                        justification = f"O documento contém conteúdo, mas não foi possível determinar com certeza sua relevância para o target '{target}'."
+
+                # Se force_match for True, força o target_match e threshold_match
                 if force_match:
                     target_response["match"] = True
-                    target_response["status"] = "true"
+                    threshold_status = "true"
+                    threshold_match = True
+
+                # threshold_match deve ser sempre 'true', 'false' ou 'inconclusive' (string)
+                threshold_match_str = threshold_status if is_device else "true"
+                # target_match deve ser booleano
+                target_match_bool = bool(target_response["match"])
+
+                # Corrigir threshold_match para 'false' se threshold não for atingido
+                if not threshold_match and is_device:
+                    threshold_match_str = "false"
+
+                # Justificativa só se não houver match ou threshold_match não for 'true'
+                justification_out = ""
+                if not target_match_bool or threshold_match_str in ["false", "inconclusive"]:
+                    justification_out = justification
 
                 return {
-                    "target_match": target_response["match"],
-                    "threshold_match": threshold_match,
-                    "threshold_status": threshold_status,
-                    "target_summary": summary,
-                    "document_summary": summary,
-                    "justification": justification
+                    "target_match": target_match_bool,
+                    "threshold_match": threshold_match_str,
+                    "summary": summary,
+                    "justification": justification_out
                 }
             except Exception as e:
                 logger.error(f"Erro ao processar resultado da crew: {str(e)}")
                 return {
                     "target_match": False,
-                    "threshold_match": False,
-                    "threshold_status": "inconclusive",
-                    "target_summary": "",
-                    "document_summary": "",
+                    "threshold_match": "inconclusive",
+                    "summary": f"Edital de licitação para {target}.",
                     "justification": f"Erro ao processar resultado da crew: {str(e)}"
                 }
 
@@ -384,9 +430,7 @@ class EditalSummarizer:
             logger.error(f"Erro ao processar edital: {str(e)}")
             return {
                 "target_match": False,
-                "threshold_match": False,
-                "threshold_status": "inconclusive",
-                "target_summary": "",
-                "document_summary": "",
+                "threshold_match": "inconclusive",
+                "summary": f"Edital de licitação para {target}.",
                 "justification": f"Erro ao processar edital: {str(e)}"
             }

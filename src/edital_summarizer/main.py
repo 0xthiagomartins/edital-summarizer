@@ -1,84 +1,19 @@
-#!/usr/bin/env python
 import os
 import sys
 import argparse
 import warnings
 import json
-from pathlib import Path
 from dotenv import load_dotenv
 from typing import Dict, Any
 
-# Carregando variáveis de ambiente diretamente
 load_dotenv()
 
 from edital_summarizer.crew import EditalSummarizer
-from edital_summarizer.processors.document import DocumentProcessor
-from edital_summarizer.processors.metadata import MetadataProcessor
-from edital_summarizer.processors.summary import SummaryProcessor
 from edital_summarizer.utils.logger import get_logger
-from edital_summarizer.utils.device_utils import is_device_target, check_device_threshold
-from edital_summarizer.schemas import EditalResponse
 
 warnings.filterwarnings("ignore", category=SyntaxWarning, module="pysbd")
 
 logger = get_logger(__name__)
-
-def process_edital(document_path: str, target: str, threshold: int = 500, force_match: bool = False, verbose: bool = False, output_file: str = "llmResponse.json") -> EditalResponse:
-    """Processa um edital e retorna o resultado."""
-    try:
-        # Inicializa o processador
-        summarizer = EditalSummarizer()
-        
-        # Processa o documento
-        result = summarizer.kickoff(document_path, target, threshold, force_match)
-        
-        # Se force_match for True, força o target_match e usa o resumo gerado
-        if force_match:
-            return EditalResponse(
-                target_match=True,  # Força o target_match
-                threshold_match=True,
-                threshold_status="true",
-                target_summary=result["document_summary"],  # Usa o resumo gerado
-                document_summary=result["document_summary"],  # Usa o resumo gerado
-                justification="",  # Limpa a justificativa já que forçamos o match
-                metadata={}
-            )
-        
-        # Se não houver match e não for forçado, retorna a justificativa
-        if not result["target_match"]:
-            return EditalResponse(
-                target_match=False,
-                threshold_match=False,
-                threshold_status=result.get("threshold_status", "inconclusive"),
-                target_summary="",
-                document_summary="",
-                justification=result["justification"],
-                metadata={}
-            )
-        
-        # Se houver match, retorna o resumo
-        return EditalResponse(
-            target_match=result["target_match"],
-            threshold_match=result.get("threshold_match", False),
-            threshold_status=result.get("threshold_status", "inconclusive"),
-            target_summary=result["target_summary"],
-            document_summary=result["document_summary"],
-            justification=result["justification"],
-            metadata={}
-        )
-        
-    except Exception as e:
-        logger.error(f"Erro ao processar edital: {str(e)}")
-        return EditalResponse(
-            target_match=False,
-            threshold_match=False,
-            threshold_status="inconclusive",
-            target_summary="",
-            document_summary="",
-            justification=f"Erro ao processar edital: {str(e)}",
-            metadata={},
-            error=str(e)
-        )
 
 def parse_args():
     """Parse command line arguments."""
@@ -87,8 +22,8 @@ def parse_args():
     )
 
     parser.add_argument(
-        "document_path",
-        help="Caminho para o documento ou diretório de documentos a serem processados",
+        "edital_path_dir",
+        help="Caminho para o diretório do edital contendo os documentos a serem processados",
     )
 
     parser.add_argument(
@@ -125,7 +60,6 @@ def parse_args():
 
     return parser.parse_args()
 
-
 def check_environment():
     """Verifica se as variáveis de ambiente necessárias estão definidas."""
     required_vars = {
@@ -147,17 +81,16 @@ def check_environment():
         )
         sys.exit(1)
 
-
 def run():
     """
     Função principal para execução da CLI.
     """
     args = parse_args()
 
-    # Validar caminho do documento
-    document_path = args.document_path
-    if not os.path.exists(document_path):
-        print(f"ERRO: Caminho não encontrado: {document_path}")
+    # Validar caminho do edital
+    edital_path_dir = args.edital_path_dir
+    if not os.path.exists(edital_path_dir):
+        print(f"ERRO: Caminho não encontrado: {edital_path_dir}")
         sys.exit(1)
 
     # Criar diretório de saída se necessário
@@ -167,7 +100,7 @@ def run():
         os.makedirs(output_dir)
 
     print(f"\n=== Iniciando processamento ===")
-    print(f"Documento: {document_path}")
+    print(f"Diretório do Edital: {edital_path_dir}")
     print(f"Target: {args.target}")
     print(f"Threshold: {args.threshold}")
     print(f"Force Match: {args.force_match}")
@@ -175,54 +108,17 @@ def run():
     print(f"Arquivo de saída: {output_file}\n")
 
     try:
-        # Se force_match for True, força o target_match mas ainda usa o crew para gerar o resumo
-        if args.force_match:
-            print("=== Modo Force Match Ativado ===")
-            # Verifica se é um diretório
-            if os.path.isdir(document_path):
-                print("Processando diretório...")
-                # Processa todos os arquivos no diretório
-                all_text = ""
-                for root, _, files in os.walk(document_path):
-                    for file in files:
-                        if file.endswith('.txt'):  # Processa apenas arquivos .txt
-                            file_path = os.path.join(root, file)
-                            print(f"Lendo arquivo: {file_path}")
-                            with open(file_path, 'r', encoding='utf-8') as f:
-                                all_text += f.read() + "\n\n"
-                
-                print("Processando metadados...")
-                # Processa os metadados do texto combinado
-                metadata_processor = MetadataProcessor()
-                metadata = metadata_processor.process({"text": all_text})
-            else:
-                print("Processando arquivo único...")
-                # Processa um único arquivo
-                with open(document_path, 'r', encoding='utf-8') as f:
-                    text = f.read()
-                
-                print("Processando metadados...")
-                # Processa os metadados
-                metadata_processor = MetadataProcessor()
-                metadata = metadata_processor.process({"text": text})
-            
-            print("\n=== Iniciando Crew para geração do resumo ===")
-            # Cria a instância do crew
-            crew = EditalSummarizer(verbose=True)
-            
-            # Processa o edital forçando o target_match
-            output = crew.kickoff(document_path, args.target)
-            
-            # Força o target_match e threshold_match para True
-            output["target_match"] = True
-            output["threshold_match"] = True
-            
-            result = output
-            
-        else:
-            print("=== Iniciando processamento normal com Crew ===")
-            # Processa normalmente usando o crew
-            result = process_edital(document_path, args.target, args.threshold)
+        print("=== Iniciando processamento com Crew ===")
+        # Cria a instância do crew
+        crew = EditalSummarizer(verbose=args.verbose)
+        
+        # Processa o edital
+        result = crew.kickoff(
+            edital_path_dir=edital_path_dir,
+            target=args.target,
+            threshold=args.threshold,
+            force_match=args.force_match
+        )
         
         print("\n=== Salvando resultado ===")
         # Salva o resultado em JSON
@@ -235,7 +131,6 @@ def run():
     except Exception as e:
         print(f"\nERRO durante o processamento: {str(e)}")
         sys.exit(1)
-
 
 if __name__ == "__main__":
     run()

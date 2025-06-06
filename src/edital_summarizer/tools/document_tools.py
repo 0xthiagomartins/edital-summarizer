@@ -1,4 +1,4 @@
-from typing import Type, Optional, Dict, List
+from typing import Type
 from pydantic import BaseModel, Field
 from crewai.tools import BaseTool
 import re
