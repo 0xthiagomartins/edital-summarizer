@@ -4,6 +4,16 @@ from pydantic import BaseModel, Field, validator
 class EditalResponse(BaseModel):
     """Schema para a resposta do processamento de editais."""
     
+    bid_number: str = Field(
+        ...,
+        description="Número do edital/licitação"
+    )
+    
+    city: str = Field(
+        ...,
+        description="Cidade/UF do edital"
+    )
+    
     target_match: bool = Field(
         ...,
         description="Indica se o documento é relevante para o target"

@@ -81,7 +81,7 @@ def check_environment():
 
 def validate_result(result: Dict[str, Any]) -> bool:
     """Valida se o resultado contém todos os campos necessários."""
-    required_fields = ["target_match", "threshold_match", "is_relevant", "summary", "justification"]
+    required_fields = ["bid_number", "city", "target_match", "threshold_match", "is_relevant", "summary", "justification"]
     
     for field in required_fields:
         if field not in result:
@@ -89,6 +89,14 @@ def validate_result(result: Dict[str, Any]) -> bool:
             return False
     
     # Valida tipos dos campos
+    if not isinstance(result["bid_number"], str):
+        logger.error("bid_number deve ser uma string")
+        return False
+        
+    if not isinstance(result["city"], str):
+        logger.error("city deve ser uma string")
+        return False
+        
     if not isinstance(result["target_match"], bool):
         logger.error("target_match deve ser um booleano")
         return False

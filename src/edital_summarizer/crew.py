@@ -257,6 +257,32 @@ class EditalSummarizer:
             logger.info(f"Stack trace:\n{traceback.format_exc()}")
             raise
 
+    @agent
+    def city_inference_agent(self) -> Agent:
+        """Create city inference agent."""
+        try:
+            logger.info("Criando city_inference_agent...")
+            llm_config = {
+                **BASE_LLM_CONFIG,
+                "temperature": 0.1,
+                "timeout": 30,
+                "max_tokens": 100,
+                "request_timeout": 60
+            }
+            
+            agent = Agent(
+                config=self.agents_config["city_inference_agent"],
+                tools=[SimpleFileReadTool(), DocumentSearchTool()],
+                verbose=True,
+                llm_config=llm_config
+            )
+            logger.info("city_inference_agent criado com sucesso")
+            return agent
+        except Exception as e:
+            logger.info(f"Erro ao criar city_inference_agent: {str(e)}")
+            logger.info(f"Stack trace:\n{traceback.format_exc()}")
+            raise
+
     def _is_device_target(self, target: str) -> bool:
         """Verifica se o target é relacionado a dispositivos."""
         device_keywords = [
@@ -329,12 +355,55 @@ class EditalSummarizer:
             if not os.path.exists(edital_path_dir):
                 logger.info(f"Diretório não encontrado: {edital_path_dir}")
                 return {
+                    "bid_number": "N/A",
+                    "city": "N/A",
                     "target_match": False,
                     "threshold_match": "false",
                     "is_relevant": False,
                     "summary": f"Erro: Diretório não encontrado: {edital_path_dir}",
                     "justification": "Não foi possível processar o edital pois o diretório não foi encontrado."
                 }
+            
+            # Tenta ler o metadata.json primeiro
+            bid_number = "N/A"
+            metadata_path = os.path.join(edital_path_dir, "metadata.json")
+            logger.info(f"Tentando ler metadata.json em: {metadata_path}")
+            logger.info(f"Diretório existe? {os.path.exists(edital_path_dir)}")
+            logger.info(f"metadata.json existe? {os.path.exists(metadata_path)}")
+            
+            if os.path.exists(metadata_path):
+                try:
+                    # Tenta diferentes encodings
+                    encodings = ['utf-8', 'latin1', 'cp1252', 'iso-8859-1']
+                    metadata = None
+                    
+                    for encoding in encodings:
+                        try:
+                            with open(metadata_path, 'r', encoding=encoding) as f:
+                                metadata = json.load(f)
+                                logger.info(f"Arquivo lido com sucesso usando encoding: {encoding}")
+                                break
+                        except UnicodeDecodeError:
+                            continue
+                        except json.JSONDecodeError:
+                            continue
+                    
+                    if metadata:
+                        logger.info(f"Conteúdo do metadata.json: {json.dumps(metadata, indent=2)}")
+                        # Tenta diferentes campos possíveis para o bid_number
+                        bid_number = (
+                            metadata.get("bid_number") or 
+                            metadata.get("bidNumber") or 
+                            metadata.get("numero_licitacao") or 
+                            metadata.get("numeroLicitacao") or 
+                            "N/A"
+                        )
+                        logger.info(f"Bid number encontrado: {bid_number}")
+                    else:
+                        logger.error("Não foi possível ler o metadata.json com nenhum encoding suportado")
+                except Exception as e:
+                    logger.error(f"Erro ao ler metadata.json: {str(e)}")
+                    logger.error(f"Stack trace:\n{traceback.format_exc()}")
             
             # Lista os arquivos no diretório
             files = []
@@ -346,6 +415,8 @@ class EditalSummarizer:
             if not files:
                 logger.info(f"Nenhum arquivo encontrado em: {edital_path_dir}")
                 return {
+                    "bid_number": bid_number,
+                    "city": "N/A",
                     "target_match": False,
                     "threshold_match": "false",
                     "is_relevant": False,
@@ -375,7 +446,7 @@ class EditalSummarizer:
                     if not file_text:
                         logger.warning(f"Arquivo {file_path} não retornou texto")
                         continue
-                        
+                    
                     text += f"\n\n=== {os.path.basename(file_path)} ===\n\n{file_text}"
                     logger.info(f"Arquivo processado com sucesso: {file_path}")
                     logger.info(f"Primeiros 100 caracteres do arquivo: {file_text[:100]}")
@@ -387,6 +458,8 @@ class EditalSummarizer:
             if not text.strip():
                 logger.info("Nenhum texto extraído dos arquivos")
                 return {
+                    "bid_number": bid_number,
+                    "city": "N/A",
                     "target_match": False,
                     "threshold_match": "false",
                     "is_relevant": False,
@@ -417,6 +490,8 @@ class EditalSummarizer:
                 logger.info(f"Erro ao dividir texto em chunks: {str(e)}")
                 logger.info(f"Stack trace:\n{traceback.format_exc()}")
                 return {
+                    "bid_number": bid_number,
+                    "city": "N/A",
                     "target_match": False,
                     "threshold_match": "false",
                     "is_relevant": False,
@@ -433,6 +508,8 @@ class EditalSummarizer:
                 logger.info(f"Erro ao criar agente de análise: {str(e)}")
                 logger.info(f"Stack trace:\n{traceback.format_exc()}")
                 return {
+                    "bid_number": bid_number,
+                    "city": "N/A",
                     "target_match": False,
                     "threshold_match": "false",
                     "is_relevant": False,
@@ -554,17 +631,11 @@ class EditalSummarizer:
                 
                 # Cria tasks para resumo e justificativa
                 summary_task = Task(
-                    description=f"""Gere um resumo detalhado do edital, incluindo:
-                    - Objeto da licitação
-                    - Quantidades mencionadas
-                    - Especificações técnicas relevantes
-                    - Prazos e valores
-                    - Outras informações importantes
-                    
-                    CONTEÚDO DO DOCUMENTO:
-                    {text}""",
+                    description=self.tasks_config["summary_task"]["description"].format(
+                        document_content=text
+                    ),
                     agent=summary_agent,
-                    expected_output="Resumo detalhado do edital"
+                    expected_output="Resumo conciso e estruturado do edital incluindo cidade/UF"
                 )
                 
                 justification_task = Task(
@@ -599,7 +670,22 @@ class EditalSummarizer:
                 summary = result.tasks_output[0].raw
                 justification = result.tasks_output[1].raw
                 
+                # Extrai a cidade do resumo
+                city = "N/A"
+                try:
+                    # Procura pela seção de cidade no resumo
+                    city_match = re.search(r'\*\*Cidade/UF\*\*\s*-\s*([^\n]+)', summary)
+                    if city_match:
+                        city = city_match.group(1).strip()
+                        logger.info(f"Cidade extraída do resumo: {city}")
+                except Exception as e:
+                    logger.error(f"Erro ao extrair cidade do resumo: {str(e)}")
+                    logger.error(f"Stack trace:\n{traceback.format_exc()}")
+                
+                # Atualiza o retorno para incluir bid_number e city
                 return {
+                    "bid_number": bid_number,
+                    "city": city,
                     "target_match": final_target_match,
                     "threshold_match": threshold_match,
                     "is_relevant": is_relevant,
@@ -611,6 +697,8 @@ class EditalSummarizer:
                 logger.info(f"Erro ao consolidar resultados: {str(e)}")
                 logger.info(f"Stack trace:\n{traceback.format_exc()}")
                 return {
+                    "bid_number": bid_number,
+                    "city": "N/A",
                     "target_match": False,
                     "threshold_match": "false",
                     "is_relevant": False,
@@ -622,6 +710,8 @@ class EditalSummarizer:
             logger.info(f"Erro ao processar edital: {str(e)}")
             logger.info(f"Stack trace:\n{traceback.format_exc()}")
             return {
+                "bid_number": "N/A",
+                "city": "N/A",
                 "target_match": False,
                 "threshold_match": "false",
                 "is_relevant": False,

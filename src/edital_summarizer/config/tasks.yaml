@@ -23,6 +23,10 @@ summary_task:
   description: |
     Gere um resumo conciso e estruturado do edital, seguindo exatamente este formato:
 
+    **Cidade/UF**
+    - Identifique a cidade e UF do edital
+    - Retorne no formato "Cidade/UF" ou "N/A" se não conseguir identificar
+
     **Objeto da Licitação**
     - Objetivo principal em uma linha
     - Modalidade e tipo de licitação
@@ -53,7 +57,7 @@ summary_task:
     
     CONTEÚDO DO DOCUMENTO:
     {document_content}
-  expected_output: "Resumo conciso e estruturado do edital"
+  expected_output: "Resumo conciso e estruturado do edital incluindo cidade/UF"
   agent: summary_agent
 
 justification_task:
@@ -84,3 +88,27 @@ justification_task:
     {document_content}
   expected_output: "Justificativa clara, direta e objetiva"
   agent: justification_agent
+
+city_inference_task:
+  description: |
+    Analise o documento para identificar a cidade e UF correta do edital.
+    
+    Você deve:
+    1. Procurar por menções a órgãos públicos (Prefeitura, Secretaria, etc.)
+    2. Identificar endereços e localizações mencionadas
+    3. Extrair a cidade e UF relacionada
+    4. Validar se a informação faz sentido no contexto
+    
+    IMPORTANTE: Retorne APENAS a cidade e UF no formato "Cidade/UF".
+    Se não conseguir identificar com certeza, retorne "N/A".
+    
+    Exemplos de respostas válidas:
+    - "Manaus/AM"
+    - "São Paulo/SP"
+    - "Brasília/DF"
+    - "N/A"
+    
+    CONTEÚDO DO DOCUMENTO:
+    {document_content}
+  expected_output: "Cidade/UF ou N/A"
+  agent: city_inference_agent
