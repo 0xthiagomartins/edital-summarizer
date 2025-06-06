@@ -82,10 +82,45 @@ O sistema retorna um JSON com:
 {
     "target_match": true/false,        // O edital é relevante para seu target?
     "threshold_match": "true/false/inconclusive",  // Atingiu a quantidade mínima?
-    "summary": "...",                  // Resumo do edital
-    "justification": "..."             // Por que não é relevante (se aplicável)
+    "is_relevant": true/false,         // O edital é relevante considerando todas as regras?
+    "summary": "...",                  // Resumo detalhado do conteúdo do edital
+    "justification": "..."             // Justificativa clara e coerente da decisão
 }
 ```
+
+#### 5.1 Lógica de Relevância (is_relevant)
+
+O campo `is_relevant` é determinado pelas seguintes regras:
+
+1. Se `target_match` for `false`:
+   - `is_relevant` será `false`
+   - A justificativa deve explicar por que o edital não é relevante para o target
+
+2. Se `target_match` for `true`:
+   - Se `threshold_match` for `"inconclusive"` ou `"false"`:
+     - `is_relevant` será `false`
+     - A justificativa deve explicar por que o threshold não foi atingido
+   - Se `threshold` for `0` (sem verificação de quantidade):
+     - `is_relevant` será `true`
+     - A justificativa deve explicar por que o edital é relevante
+   - Se `threshold_match` for `"true"`:
+     - `is_relevant` será `true`
+     - A justificativa deve explicar por que o edital é relevante
+
+#### 5.2 Resumo e Justificativa
+
+- **Summary**: Deve conter um resumo detalhado do conteúdo do edital, incluindo:
+  - Objeto da licitação
+  - Quantidades mencionadas
+  - Especificações técnicas relevantes
+  - Prazos e valores
+  - Outras informações importantes
+
+- **Justification**: Deve explicar claramente:
+  - Por que o edital é ou não relevante
+  - Se relevante: destacar os pontos que o tornam relevante
+  - Se não relevante: explicar por que não atende aos critérios
+  - Em caso de threshold: explicar a análise da quantidade
 
 ### 6. Dicas para Targets Efetivos
 

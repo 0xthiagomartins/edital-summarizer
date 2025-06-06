@@ -108,13 +108,26 @@ class SimpleFileReadTool(BaseTool):
                     num_pages = len(pdf_reader.pages)
                     logger.info(f"PDF tem {num_pages} páginas")
                     
-                    for page_num in range(num_pages):
+                    # Processa apenas as primeiras 20 páginas para economizar tokens
+                    max_pages = min(20, num_pages)
+                    logger.info(f"Processando {max_pages} páginas do PDF")
+                    
+                    for page_num in range(max_pages):
                         try:
                             page = pdf_reader.pages[page_num]
                             page_text = page.extract_text()
                             if page_text:
-                                text += f"\n\n=== Página {page_num + 1} ===\n\n{page_text}"
-                                logger.debug(f"Texto extraído da página {page_num + 1}: {page_text[:100]}")
+                                # Limpa o texto da página antes de adicionar
+                                page_text = page_text.replace('\x00', '')  # Remove caracteres nulos
+                                page_text = re.sub(r'\s+', ' ', page_text)  # Normaliza espaços
+                                page_text = page_text.strip()
+                                
+                                # Adiciona apenas se houver conteúdo significativo
+                                if len(page_text) > 50:  # Ignora páginas com pouco conteúdo
+                                    text += f"\n\n=== Página {page_num + 1} ===\n\n{page_text}"
+                                    logger.debug(f"Texto extraído da página {page_num + 1}: {page_text[:100]}")
+                                else:
+                                    logger.warning(f"Página {page_num + 1} ignorada por ter pouco conteúdo")
                             else:
                                 logger.warning(f"Nenhum texto extraído da página {page_num + 1}")
                         except Exception as e:
@@ -129,13 +142,26 @@ class SimpleFileReadTool(BaseTool):
                         num_pages = len(pdf_reader.pages)
                         logger.info(f"PDF tem {num_pages} páginas (usando pypdf)")
                         
-                        for page_num in range(num_pages):
+                        # Processa apenas as primeiras 20 páginas para economizar tokens
+                        max_pages = min(20, num_pages)
+                        logger.info(f"Processando {max_pages} páginas do PDF")
+                        
+                        for page_num in range(max_pages):
                             try:
                                 page = pdf_reader.pages[page_num]
                                 page_text = page.extract_text()
                                 if page_text:
-                                    text += f"\n\n=== Página {page_num + 1} ===\n\n{page_text}"
-                                    logger.debug(f"Texto extraído da página {page_num + 1}: {page_text[:100]}")
+                                    # Limpa o texto da página antes de adicionar
+                                    page_text = page_text.replace('\x00', '')  # Remove caracteres nulos
+                                    page_text = re.sub(r'\s+', ' ', page_text)  # Normaliza espaços
+                                    page_text = page_text.strip()
+                                    
+                                    # Adiciona apenas se houver conteúdo significativo
+                                    if len(page_text) > 50:  # Ignora páginas com pouco conteúdo
+                                        text += f"\n\n=== Página {page_num + 1} ===\n\n{page_text}"
+                                        logger.debug(f"Texto extraído da página {page_num + 1}: {page_text[:100]}")
+                                    else:
+                                        logger.warning(f"Página {page_num + 1} ignorada por ter pouco conteúdo")
                                 else:
                                     logger.warning(f"Nenhum texto extraído da página {page_num + 1}")
                             except Exception as e:
@@ -153,6 +179,11 @@ class SimpleFileReadTool(BaseTool):
             text = text.replace('\x00', '')  # Remove caracteres nulos
             text = re.sub(r'\s+', ' ', text)  # Normaliza espaços
             text = text.strip()
+            
+            # Limita o tamanho do texto para economizar tokens
+            max_chars = 20000  # Limite máximo de caracteres
+            if len(text) > max_chars:
+                text = text[:max_chars] + "\n\n[Texto truncado]"
             
             logger.info(f"Texto extraído com sucesso do PDF. Tamanho: {len(text)} caracteres")
             return text
