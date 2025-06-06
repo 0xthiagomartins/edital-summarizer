@@ -2,12 +2,13 @@ from crewai import Agent, Crew, Task
 from crewai.project import CrewBase, agent
 from typing import Dict, Any
 import os, yaml, PyPDF2, zipfile, tempfile, shutil, json
+import traceback
+import re
 
 from .tools.file_tools import SimpleFileReadTool
 from .tools.document_tools import DocumentSearchTool, TableExtractionTool
 from .utils.logger import get_logger
 
-# Configuração global de rate limit
 RATE_LIMIT_CONFIG = {
     "requests_per_minute": 450,  # 10% abaixo do limite de 500 RPM
     "tokens_per_minute": 25000,  # 17% abaixo do limite de 30,000 TPM
@@ -119,6 +120,7 @@ class EditalSummarizer:
 
     @agent
     def target_analyst_agent(self) -> Agent:
+        """Create target analyst agent."""
         llm_config = {
             **BASE_LLM_CONFIG,
             "temperature": 0.1,
@@ -126,15 +128,27 @@ class EditalSummarizer:
             "max_tokens": 1000,
             "request_timeout": 60
         }
-        
         return Agent(
-            config=self.agents_config["target_analyst_agent"],
-            tools=[
-                SimpleFileReadTool(),
-                DocumentSearchTool()
-            ],
+            role="Analista de Alvo",
+            goal="Analisar se o documento é relevante para o alvo especificado e identificar o volume total de operações",
+            backstory="""Você é um especialista em análise de editais e documentos de licitação.
+            Sua função é determinar se o documento é relevante para o alvo especificado e, se for relacionado a dispositivos,
+            identificar o volume total de operações.
+            
+            IMPORTANTE: Você DEVE retornar APENAS um JSON válido com os seguintes campos:
+            - target_match: boolean indicando se o documento é relevante para o alvo
+            - volume: número inteiro indicando o volume total de operações (0 se não for relacionado a dispositivos)
+            
+            Exemplo de resposta válida:
+            {
+                "target_match": true,
+                "volume": 1000
+            }
+            
+            NÃO inclua nenhum texto adicional ou explicações. Apenas o JSON.""",
             verbose=True,
-            llm_config=llm_config
+            llm_config=llm_config,
+            tools=[SimpleFileReadTool()],
         )
 
     @agent
@@ -173,223 +187,292 @@ class EditalSummarizer:
 
     def _is_device_target(self, target: str) -> bool:
         """Verifica se o target é relacionado a dispositivos."""
-        device_keywords = ['tablet', 'celular', 'notebook', 'smartphone', 'laptop']
-        return any(keyword in target.lower() for keyword in device_keywords)
+        device_keywords = [
+            'tablet', 'notebook', 'laptop', 'desktop', 'computador', 'pc',
+            'smartphone', 'celular', 'telefone', 'impressora', 'scanner',
+            'monitor', 'teclado', 'mouse', 'headset', 'câmera', 'camera',
+            'projetor', 'tv', 'televisão', 'televisao', 'equipamento',
+            'hardware', 'dispositivo', 'aparelho', 'máquina', 'maquina'
+        ]
+        
+        target_lower = target.lower()
+        return any(keyword in target_lower for keyword in device_keywords)
 
-    def _process_target_response(self, response: str) -> Dict[str, str]:
-        """Processa a resposta do target analyst e retorna o status do threshold."""
+    def _process_target_response(self, response: str, threshold: int) -> bool:
+        """Process target analyst response."""
         try:
             logger.info(f"Processando resposta do target analyst: {response}")
-            logger.info(f"Tipo da resposta: {type(response)}")
             
-            # Tenta primeiro processar como JSON
+            # Tenta processar como JSON
             try:
-                logger.info("Tentando processar como JSON...")
-                response_data = json.loads(response)
-                logger.info(f"Dados JSON processados: {response_data}")
-                target_match = response_data.get("target_match", False)
-                volume = response_data.get("volume", 0)
-            except json.JSONDecodeError as e:
-                logger.info(f"Não é JSON, tentando processar como string: {str(e)}")
-                # Se não for JSON, processa como string booleana
-                response = response.strip().lower()
-                logger.info(f"Resposta após strip e lower: {response}")
-                if response in ['true', 'false', 'inconclusive']:
-                    target_match = response == 'true'
-                    volume = 0
-                    logger.info(f"Processado como string booleana. target_match: {target_match}, volume: {volume}")
+                data = json.loads(response)
+                logger.info(f"Resposta processada como JSON: {data}")
+                
+                if not isinstance(data, dict):
+                    logger.error(f"Resposta não é um dicionário: {type(data)}")
+                    return False
+                    
+                target_match = data.get("target_match")
+                volume = data.get("volume", 0)
+                
+                if not isinstance(target_match, bool):
+                    logger.error(f"target_match não é um booleano: {type(target_match)}")
+                    return False
+                    
+                if not isinstance(volume, (int, float)):
+                    logger.error(f"volume não é um número: {type(volume)}")
+                    return False
+                
+                # Se não for um dispositivo, não precisa verificar o volume
+                if not target_match:
+                    logger.info("Documento não é relevante para o alvo")
+                    return False
+                
+                # Se for um dispositivo, verifica o volume
+                if volume >= threshold:
+                    logger.info(f"Volume ({volume}) atende ao threshold ({threshold})")
+                    return True
                 else:
-                    logger.error(f"Resposta inválida do target analyst: {response}")
-                    return {"status": "inconclusive", "match": False}
-            
-            # Se não for match, retorna imediatamente
-            if not target_match:
-                logger.info("Documento não é relevante para o target")
-                return {"status": "false", "match": False}
-            
-            # Se for match e for dispositivo, verifica o threshold
-            if self._is_device_target(self.target):
-                logger.info(f"Target é dispositivo. Volume: {volume}, Threshold: {self.threshold}")
-                if volume >= self.threshold:
-                    logger.info("Volume atende ao threshold")
-                    return {"status": "true", "match": True}
-                else:
-                    logger.info("Volume não atende ao threshold")
-                    return {"status": "false", "match": False}
-            
-            # Se for match mas não for dispositivo, retorna true
-            logger.info("Documento é relevante e não é dispositivo")
-            return {"status": "true", "match": True}
-            
+                    logger.info(f"Volume ({volume}) não atende ao threshold ({threshold})")
+                    return False
+                    
+            except json.JSONDecodeError:
+                logger.error(f"Erro ao decodificar JSON: {str(e)}")
+                return False
+                
         except Exception as e:
             logger.error(f"Erro ao processar resposta do target analyst: {str(e)}")
-            logger.error(f"Tipo do erro: {type(e)}")
-            logger.error(f"Stack trace:", exc_info=True)
-            return {"status": "inconclusive", "match": False}
+            logger.error(f"Stack trace: {traceback.format_exc()}")
+            return False
 
     def kickoff(self, edital_path_dir: str, target: str, threshold: int = 500, force_match: bool = False) -> Dict[str, Any]:
-        """Inicia o processamento do edital."""
+        """Processa um edital e retorna um resumo."""
         try:
-            logger.warning(f"Processando: {edital_path_dir}")
-            self.target = target
-            self.threshold = threshold
-
-            # Processa todos os arquivos no diretório
-            all_text = ""
-            for root, _, files in os.walk(edital_path_dir):
-                for file in files:
-                    file_path = os.path.join(root, file)
+            logger.info(f"Iniciando processamento do edital em: {edital_path_dir}")
+            logger.info(f"Target: {target}")
+            logger.info(f"Threshold: {threshold}")
+            logger.info(f"Force match: {force_match}")
+            
+            # Verifica se o diretório existe
+            if not os.path.exists(edital_path_dir):
+                logger.error(f"Diretório não encontrado: {edital_path_dir}")
+                return {
+                    "target_match": False,
+                    "threshold_match": "false",
+                    "summary": f"Erro: Diretório não encontrado: {edital_path_dir}",
+                    "justification": "Não foi possível processar o edital pois o diretório não foi encontrado."
+                }
+            
+            # Lista os arquivos no diretório
+            files = []
+            for root, _, filenames in os.walk(edital_path_dir):
+                for file in filenames:
+                    if file.lower().endswith(('.pdf', '.docx', '.doc', '.txt', '.md', '.zip', '.json')):
+                        files.append(os.path.abspath(os.path.join(root, file)))
+            
+            if not files:
+                logger.error(f"Nenhum arquivo encontrado em: {edital_path_dir}")
+                return {
+                    "target_match": False,
+                    "threshold_match": "false",
+                    "summary": f"Erro: Nenhum arquivo encontrado em: {edital_path_dir}",
+                    "justification": "Não foi possível processar o edital pois nenhum arquivo foi encontrado."
+                }
+            
+            logger.info(f"Arquivos encontrados: {files}")
+            
+            # Extrai o texto dos arquivos
+            text = ""
+            for file_path in files:
+                try:
                     logger.info(f"Processando arquivo: {file_path}")
-                    if file.endswith('.pdf'):
-                        # Lê arquivo PDF
-                        pdf_text = read_pdf(file_path)
-                        if pdf_text:
-                            all_text += f"\n\n=== {file} ===\n\n{pdf_text}"
-                            logger.info(f"PDF processado com sucesso: {file}")
-                        else:
-                            logger.warning(f"PDF não retornou texto: {file}")
-                    elif file.endswith(('.txt', '.docx', '.doc', '.md')):
-                        file_text = read_text_file(file_path)
-                        if file_text:
-                            all_text += f"\n\n=== {file} ===\n\n{file_text}"
-                            logger.info(f"Arquivo de texto processado com sucesso: {file}")
-                        else:
-                            logger.warning(f"Arquivo de texto não retornou conteúdo: {file}")
-                text = all_text
-
-            # Verifica se o texto está vazio
+                    file_tool = SimpleFileReadTool()
+                    file_text = file_tool._run(file_path)
+                    
+                    if file_text.startswith("Error:"):
+                        logger.error(f"Erro ao ler arquivo {file_path}: {file_text}")
+                        continue
+                        
+                    # Limpa e normaliza o texto
+                    file_text = file_text.replace('\x00', '')  # Remove caracteres nulos
+                    file_text = re.sub(r'\s+', ' ', file_text)  # Normaliza espaços
+                    file_text = file_text.strip()
+                    
+                    if not file_text:
+                        logger.warning(f"Arquivo {file_path} não retornou texto")
+                        continue
+                        
+                    text += f"\n\n=== {os.path.basename(file_path)} ===\n\n{file_text}"
+                    logger.info(f"Arquivo processado com sucesso: {file_path}")
+                    logger.debug(f"Primeiros 100 caracteres do arquivo: {file_text[:100]}")
+                except Exception as e:
+                    logger.error(f"Erro ao processar arquivo {file_path}: {str(e)}")
+                    continue
+            
             if not text.strip():
-                logger.error("Nenhum texto foi extraído dos documentos")
-                raise ValueError("Nenhum texto foi extraído dos documentos")
-
-            # Verifica se é um target de dispositivo
-            is_device = self._is_device_target(target)
-            logger.info(f"Target é dispositivo: {is_device}")
-
+                logger.error("Nenhum texto extraído dos arquivos")
+                return {
+                    "target_match": False,
+                    "threshold_match": "false",
+                    "summary": "Erro: Não foi possível extrair texto dos arquivos",
+                    "justification": "Não foi possível processar o edital pois não foi possível extrair texto dos arquivos."
+                }
+            
+            # Limpa e normaliza o texto final
+            text = text.replace('\x00', '')  # Remove caracteres nulos
+            text = re.sub(r'\s+', ' ', text)  # Normaliza espaços
+            text = text.strip()
+            
+            logger.info(f"Texto extraído com sucesso. Tamanho: {len(text)} caracteres")
+            logger.debug(f"Primeiros 500 caracteres do texto: {text[:500]}")
+            
             # Cria os agentes
             target_analyst = self.target_analyst_agent()
             summary_agent = self.summary_agent()
             justification_agent = self.justification_agent()
-
+            
             # Cria as tarefas
-            target_analysis_task = Task(
-                description=self.tasks_config["target_analysis_task"]["description"].format(
-                    target=target,
-                    threshold=threshold,
-                    document_content=text[:500]
-                ),
-                agent=target_analyst,
-                expected_output=self.tasks_config["target_analysis_task"]["expected_output"]
-            )
-
-            summary_task = Task(
-                description=self.tasks_config["summary_task"]["description"].format(
-                    target=target,
-                    document_content=text[:500]
-                ),
-                agent=summary_agent,
-                expected_output=self.tasks_config["summary_task"]["expected_output"]
-            )
-
-            justification_task = Task(
-                description=self.tasks_config["justification_task"]["description"].format(
-                    target=target,
-                    threshold=threshold,
-                    threshold_status="inconclusive",
-                    document_content=text[:500]
-                ),
-                agent=justification_agent,
-                expected_output=self.tasks_config["justification_task"]["expected_output"]
-            )
+            logger.info("Criando tarefa de análise de target...")
+            logger.debug(f"Target: {target}")
+            logger.debug(f"Threshold: {threshold}")
+            logger.debug(f"Arquivos: {files}")
+            
+            try:
+                target_analysis_task = Task(
+                    description=f"""Analise o documento para determinar se é relevante para o alvo '{target}' e se atende ao volume mínimo de {threshold} unidades.
+                    
+                    IMPORTANTE: Você DEVE retornar APENAS um JSON válido com os seguintes campos:
+                    - target_match: boolean indicando se o documento é relevante para o alvo
+                    - volume: número inteiro indicando o volume total de operações (0 se não for relacionado a dispositivos)
+                    
+                    Exemplo de resposta válida:
+                    {{
+                        "target_match": true,
+                        "volume": 1000
+                    }}
+                    
+                    NÃO inclua nenhum texto adicional ou explicações. Apenas o JSON.
+                    
+                    CONTEÚDO DO DOCUMENTO:
+                    {text}""",
+                    agent=target_analyst,
+                    expected_output="JSON com target_match e volume"
+                )
+                logger.info("Tarefa de análise de target criada com sucesso")
+            except Exception as e:
+                logger.error(f"Erro ao criar tarefa de análise de target: {str(e)}")
+                logger.error(f"Stack trace: {traceback.format_exc()}")
+                raise
+            
+            try:
+                logger.info("Criando tarefa de resumo...")
+                summary_task = Task(
+                    description=f"""Gere um resumo executivo do documento, focando nos pontos mais relevantes.
+                    O resumo deve ser conciso e informativo, destacando os aspectos mais importantes do edital.
+                    
+                    CONTEÚDO DO DOCUMENTO:
+                    {text}""",
+                    agent=summary_agent,
+                    expected_output="Resumo executivo do documento"
+                )
+                logger.info("Tarefa de resumo criada com sucesso")
+            except Exception as e:
+                logger.error(f"Erro ao criar tarefa de resumo: {str(e)}")
+                logger.error(f"Stack trace: {traceback.format_exc()}")
+                raise
+            
+            try:
+                logger.info("Criando tarefa de justificativa...")
+                justification_task = Task(
+                    description=f"""Forneça uma justificativa clara e objetiva para a decisão tomada sobre a relevância do documento.
+                    A justificativa deve explicar por que o documento foi considerado relevante ou não para o alvo especificado.
+                    
+                    CONTEÚDO DO DOCUMENTO:
+                    {text}""",
+                    agent=justification_agent,
+                    expected_output="Justificativa da decisão"
+                )
+                logger.info("Tarefa de justificativa criada com sucesso")
+            except Exception as e:
+                logger.error(f"Erro ao criar tarefa de justificativa: {str(e)}")
+                logger.error(f"Stack trace: {traceback.format_exc()}")
+                raise
 
             # Cria a crew
-            crew = Crew(
-                agents=[target_analyst, summary_agent, justification_agent],
-                tasks=[target_analysis_task, summary_task, justification_task],
-                verbose=self.verbose
-            )
-
+            try:
+                logger.info("Criando crew...")
+                logger.debug(f"Agentes: {[type(agent) for agent in [target_analyst, summary_agent, justification_agent]]}")
+                logger.debug(f"Tarefas: {[type(task) for task in [target_analysis_task, summary_task, justification_task]]}")
+                
+                crew = Crew(
+                    agents=[target_analyst, summary_agent, justification_agent],
+                    tasks=[target_analysis_task, summary_task, justification_task],
+                    verbose=True
+                )
+                logger.info("Crew criada com sucesso")
+            except Exception as e:
+                logger.error(f"Erro ao criar crew: {str(e)}")
+                logger.error(f"Stack trace: {traceback.format_exc()}")
+                raise
+            
             # Executa a crew
             result = crew.kickoff()
-            logger.info(f"Resultado da crew: {result}")
-            logger.info(f"Tipo do resultado: {type(result)}")
-            logger.info(f"Atributos do resultado: {dir(result)}")
-            logger.info(f"Representação do resultado: {repr(result)}")
-
-            # Processa o resultado
+            
             try:
                 # Extrai os resultados das tarefas
-                target_response = self._process_target_response(result.tasks_output[0].raw)
+                target_response = self._process_target_response(result.tasks_output[0].raw, threshold)
                 summary = result.tasks_output[1].raw
                 justification = result.tasks_output[2].raw
-
-                # Pós-processamento do resumo para evitar lixo em inglês
-                summary_lower = summary.lower()
-                if (
-                    'i now can give a great answer' in summary_lower or
-                    'thought:' in summary_lower or
-                    'final answer:' in summary_lower or
-                    'não há contexto' in summary_lower or
-                    'preciso de mais informações' in summary_lower or
-                    any(word in summary for word in ['context', 'information', 'answer', 'english'])
-                ):
-                    # Se o resumo for inválido, verifica se temos informações suficientes
-                    if not text.strip() or len(text.strip()) < 100:
-                        target_response["match"] = False
-                        summary = f'Edital de licitação para {target}.'
-                        justification = f"O documento está vazio ou contém muito pouco conteúdo para análise."
-                    else:
-                        # Se temos conteúdo mas o resumo falhou, tenta gerar um resumo básico
-                        summary = f'Edital de licitação para {target}. Conteúdo disponível para análise, mas não foi possível gerar um resumo detalhado.'
-
-                # Pós-processamento da justificativa
-                justification_lower = justification.lower()
-                if (
-                    'thought:' in justification_lower or
-                    'final answer:' in justification_lower or
-                    'não há contexto' in justification_lower or
-                    'preciso de mais informações' in justification_lower or
-                    any(word in justification for word in ['context', 'information', 'answer', 'english'])
-                ):
-                    if not text.strip() or len(text.strip()) < 100:
-                        justification = f"O documento está vazio ou contém muito pouco conteúdo para análise."
-                    else:
-                        justification = f"O documento contém conteúdo, mas não foi possível determinar com certeza sua relevância para o target '{target}'."
-
+                
+                # Verifica se o resumo é válido
+                if not summary or len(summary.strip()) < 50:
+                    logger.warning("Resumo inválido, usando texto alternativo")
+                    summary = f'Edital de licitação para {target}.'
+                
+                # Verifica se a justificativa é válida
+                if not justification or len(justification.strip()) < 50:
+                    logger.warning("Justificativa inválida, usando texto alternativo")
+                    justification = f"O documento foi analisado em relação ao alvo '{target}'."
+                
+                # Verifica se é um dispositivo
+                is_device = self._is_device_target(target)
+                
                 # Se force_match for True, força o target_match e threshold_match
                 if force_match:
-                    target_response["match"] = True
-                    target_response["status"] = "true"
-
+                    target_response = True
+                
                 # Corrigir threshold_match para 'false' se threshold não for atingido
-                if not target_response["match"] and is_device:
-                    target_response["status"] = "false"
-
+                if not target_response and is_device:
+                    target_response = False
+                
                 # Justificativa só se não houver match ou threshold_match não for 'true'
                 justification_out = ""
-                if not target_response["match"] or target_response["status"] in ["false", "inconclusive"]:
+                if not target_response or target_response == "false":
                     justification_out = justification
-
+                
                 return {
-                    "target_match": target_response["match"],
-                    "threshold_match": target_response["status"],
+                    "target_match": target_response,
+                    "threshold_match": "true" if target_response else "false",
                     "summary": summary,
                     "justification": justification_out
                 }
+                
             except Exception as e:
-                logger.error(f"Erro ao processar resultado da crew: {str(e)}")
+                logger.error(f"Erro ao processar resultados: {str(e)}")
+                logger.error(f"Stack trace: {traceback.format_exc()}")
                 return {
                     "target_match": False,
-                    "threshold_match": "inconclusive",
-                    "summary": f"Edital de licitação para {target}.",
-                    "justification": f"Erro ao processar resultado da crew: {str(e)}"
+                    "threshold_match": "false",
+                    "summary": f"Erro ao processar resultados: {str(e)}",
+                    "justification": "Ocorreu um erro ao processar os resultados da análise."
                 }
-
+                
         except Exception as e:
             logger.error(f"Erro ao processar edital: {str(e)}")
+            logger.error(f"Stack trace: {traceback.format_exc()}")
             return {
                 "target_match": False,
-                "threshold_match": "inconclusive",
-                "summary": f"Edital de licitação para {target}.",
-                "justification": f"Erro ao processar edital: {str(e)}"
+                "threshold_match": "false",
+                "summary": f"Erro ao processar edital: {str(e)}",
+                "justification": "Ocorreu um erro ao processar o edital."
             }

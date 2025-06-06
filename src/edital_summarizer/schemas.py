@@ -24,7 +24,3 @@ class EditalResponse(BaseModel):
         description="Justificativa para não geração do resumo"
     )
     
-    error: Optional[str] = Field(
-        default=None,
-        description="Mensagem de erro, se houver"
-    ) 
