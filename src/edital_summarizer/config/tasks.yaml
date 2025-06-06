@@ -21,23 +21,39 @@ target_analysis_task:
 
 summary_task:
   description: |
-    Gere um resumo detalhado do edital, incluindo:
-    - Objeto da licitação
-    - Quantidades mencionadas
-    - Especificações técnicas relevantes
-    - Prazos e valores
-    - Outras informações importantes
-    
+    Gere um resumo conciso e estruturado do edital, seguindo exatamente este formato:
+
+    **Objeto da Licitação**
+    - Objetivo principal em uma linha
+    - Modalidade e tipo de licitação
+
+    **Lotes e Quantidades**
+    - Lista direta dos lotes com quantidades e especificações principais
+    - Use tópicos curtos e diretos
+    - Exemplo:
+      * Lote 1: 3 Frigobares (116L, classe A)
+      * Lote 2: 1 Ar-condicionado (24.000 BTUs, Split)
+
+    **Prazos Importantes**
+    - Data de abertura
+    - Prazo de entrega
+    - Validade da proposta
+
+    **Condições Principais**
+    - Requisitos essenciais para participação
+    - Documentação necessária
+    - Restrições relevantes
+
     O resumo deve ser:
-    1. Claro e conciso
-    2. Estruturado em tópicos
-    3. Focado em informações relevantes
-    4. Baseado apenas no conteúdo do documento
-    5. Em português
+    1. Direto e objetivo
+    2. Estruturado em tópicos curtos
+    3. Focado nas informações mais relevantes
+    4. Sem introduções ou conclusões desnecessárias
+    5. Em português claro
     
     CONTEÚDO DO DOCUMENTO:
     {document_content}
-  expected_output: "Resumo detalhado do edital"
+  expected_output: "Resumo conciso e estruturado do edital"
   agent: summary_agent
 
 justification_task:
