@@ -128,10 +128,9 @@ edital-summarizer/
 │       ├── crew.py          # Lógica principal do processamento
 │       ├── main.py          # Ponto de entrada CLI
 │       ├── schemas.py       # Schemas de dados
-│       ├── agents.py        # Definição dos agentes
 │       ├── config/          # Configurações
-│       │   ├── agents.yaml
-│       │   └── tasks.yaml
+│       │   ├── agents.yaml  # Configurações dos agentes
+│       │   └── tasks.yaml   # Configurações das tasks
 │       ├── tools/          # Ferramentas de processamento
 │       │   ├── file_tools.py
 │       │   ├── document_tools.py
