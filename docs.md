@@ -50,8 +50,12 @@ graph TD
 
 #### Exemplo 1: Venda de Notebooks
 ```bash
-Target: "Fornecimento de Notebooks para Uso Administrativo"
-Threshold: 500
+python -m src.edital_summarizer.main \
+  samples/edital-001 \
+  --target "Fornecimento de Notebooks para Uso Administrativo" \
+  --threshold 500 \
+  -o resultado.json \
+  -v
 ```
 - O sistema vai procurar editais que mencionem notebooks
 - Só vai considerar relevante se a quantidade for >= 500
@@ -59,32 +63,42 @@ Threshold: 500
 
 #### Exemplo 2: Serviço de RPA
 ```bash
-Target: "Automação de Processos com RPA"
-Threshold: 0
+python -m src.edital_summarizer.main \
+  samples/edital-001 \
+  --target "Automação de Processos com RPA" \
+  --threshold 0 \
+  -o resultado.json \
+  -v
 ```
 - O sistema vai procurar editais que mencionem RPA/automação
 - Não verifica quantidade (threshold = 0)
 - Considera relevante se mencionar RPA/automação
 
-#### Exemplo 3: Tablets para Educação
+#### Exemplo 3: Forçar Match
 ```bash
-Target: "Fornecimento de Tablets para Educação"
-Threshold: 1000
+python -m src.edital_summarizer.main \
+  samples/edital-001 \
+  --target "Fornecimento de Tablets para Educação" \
+  --threshold 1000 \
+  --force-match \
+  -o resultado.json \
+  -v
 ```
-- O sistema vai procurar editais sobre tablets para educação
-- Só considera relevante se a quantidade for >= 1000
-- Ignora editais com menos tablets
+- Força o target_match a ser True
+- Útil para testes ou quando você quer ignorar o threshold
 
 ### 5. Resultados
 
 O sistema retorna um JSON com:
 ```json
 {
-    "target_match": true/false,        // O edital é relevante para seu target?
+    "bid_number": "string",           // Número do edital/licitação
+    "city": "string",                 // Cidade/UF do edital
+    "target_match": true/false,       // O edital é relevante para seu target?
     "threshold_match": "true/false/inconclusive",  // Atingiu a quantidade mínima?
-    "is_relevant": true/false,         // O edital é relevante considerando todas as regras?
-    "summary": "...",                  // Resumo detalhado do conteúdo do edital
-    "justification": "..."             // Justificativa clara e coerente da decisão
+    "is_relevant": true/false,        // O edital é relevante considerando todas as regras?
+    "summary": "...",                 // Resumo detalhado do conteúdo do edital
+    "justification": "..."            // Justificativa clara e coerente da decisão
 }
 ```
 
@@ -110,6 +124,7 @@ O campo `is_relevant` é determinado pelas seguintes regras:
 #### 5.2 Resumo e Justificativa
 
 - **Summary**: Deve conter um resumo detalhado do conteúdo do edital, incluindo:
+  - Cidade/UF
   - Objeto da licitação
   - Quantidades mencionadas
   - Especificações técnicas relevantes
@@ -146,31 +161,55 @@ O campo `is_relevant` é determinado pelas seguintes regras:
 #### 7.1 Venda de Equipamentos
 ```bash
 # Notebooks para Administração
-Target: "Fornecimento de Notebooks para Uso Administrativo"
-Threshold: 500
+python -m src.edital_summarizer.main \
+  samples/edital-001 \
+  --target "Fornecimento de Notebooks para Uso Administrativo" \
+  --threshold 500 \
+  -o resultado.json \
+  -v
 
 # Tablets para Educação
-Target: "Fornecimento de Tablets para Educação"
-Threshold: 1000
+python -m src.edital_summarizer.main \
+  samples/edital-001 \
+  --target "Fornecimento de Tablets para Educação" \
+  --threshold 1000 \
+  -o resultado.json \
+  -v
 
 # Smartphones Corporativos
-Target: "Fornecimento de Smartphones Corporativos"
-Threshold: 500
+python -m src.edital_summarizer.main \
+  samples/edital-001 \
+  --target "Fornecimento de Smartphones Corporativos" \
+  --threshold 500 \
+  -o resultado.json \
+  -v
 ```
 
 #### 7.2 Serviços de TI
 ```bash
 # RPA para Financeiro
-Target: "Automação de Processos com RPA para Área Financeira"
-Threshold: 0
+python -m src.edital_summarizer.main \
+  samples/edital-001 \
+  --target "Automação de Processos com RPA para Área Financeira" \
+  --threshold 0 \
+  -o resultado.json \
+  -v
 
 # IA para Saúde
-Target: "Solução de Inteligência Artificial para Análise de Imagens Médicas"
-Threshold: 0
+python -m src.edital_summarizer.main \
+  samples/edital-001 \
+  --target "Solução de Inteligência Artificial para Análise de Imagens Médicas" \
+  --threshold 0 \
+  -o resultado.json \
+  -v
 
 # Cloud Computing
-Target: "Migração para Cloud Computing"
-Threshold: 0
+python -m src.edital_summarizer.main \
+  samples/edital-001 \
+  --target "Migração para Cloud Computing" \
+  --threshold 0 \
+  -o resultado.json \
+  -v
 ```
 
 ### 8. Boas Práticas
@@ -195,10 +234,16 @@ Threshold: 0
    - Ajuste baseado nos resultados
    - Considere o tamanho do mercado
 
+4. **Modo Verboso**
+   - Use a flag `-v` para ver logs detalhados
+   - Útil para debug e entendimento do processamento
+   - Mostra informações sobre cada etapa do processamento
+
 ### 9. Suporte
 
 Se precisar de ajuda:
 1. Verifique se o target está bem definido
 2. Confirme se o threshold está adequado
 3. Analise o resumo e a justificativa
-4. Ajuste os parâmetros conforme necessário 
+4. Ajuste os parâmetros conforme necessário
+5. Use o modo verboso (`-v`) para mais detalhes 

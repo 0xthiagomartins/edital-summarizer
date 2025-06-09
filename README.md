@@ -1,196 +1,172 @@
-# EditalSummarizer Crew
+# Edital Summarizer
 
-Welcome to the EditalSummarizer Crew project, powered by [crewAI](https://crewai.com). This template is designed to help you set up a multi-agent AI system with ease, leveraging the powerful and flexible framework provided by crewAI. Our goal is to enable your agents to collaborate effectively on complex tasks, maximizing their collective intelligence and capabilities.
+Uma ferramenta inteligente para análise e resumo de editais de licitação, utilizando CrewAI e GPT-4 para identificar oportunidades de negócio relevantes.
 
-## Installation
+## 🚀 Funcionalidades
 
-Ensure you have Python >=3.10 <3.13 installed on your system. This project uses [UV](https://docs.astral.sh/uv/) for dependency management and package handling, offering a seamless setup and execution experience.
+- **Análise Inteligente**: Identifica automaticamente editais relevantes para seu negócio
+- **Resumo Estruturado**: Gera resumos claros e objetivos dos editais
+- **Suporte a Múltiplos Formatos**: Processa PDFs, Word, PowerPoint, Excel, TXT, MD e mais
+- **Metadados Automáticos**: Extrai informações como número do edital, cidade/UF e datas
+- **Threshold Configurável**: Define quantidade mínima para produtos
+- **Justificativa Clara**: Explica por que um edital é ou não relevante
 
-First, if you haven't already, install uv:
+## 📋 Pré-requisitos
 
+- Python 3.10 ou superior
+- OpenAI API Key
+- Dependências listadas em `pyproject.toml`
+
+## 🔧 Instalação
+
+1. Clone o repositório:
 ```bash
-pip install uv
+git clone https://github.com/0xthiagomartins/edital-summarizer.git
+cd edital-summarizer
 ```
 
-Next, navigate to your project directory and install the dependencies:
-
-(Optional) Lock the dependencies and install them by using the CLI command:
+2. Crie e ative um ambiente virtual:
 ```bash
-crewai install
-```
-### Customizing
-
-**Add your `OPENAI_API_KEY` into the `.env` file**
-
-- Modify `src/edital_summarizer/config/agents.yaml` to define your agents
-- Modify `src/edital_summarizer/config/tasks.yaml` to define your tasks
-- Modify `src/edital_summarizer/crew.py` to add your own logic, tools and specific args
-- Modify `src/edital_summarizer/main.py` to add custom inputs for your agents and tasks
-
-## Running the Project
-
-To kickstart your crew of AI agents and begin task execution, run this from the root folder of your project:
-
-```bash
-$ crewai run
+python -m venv .venv
+# Windows
+.venv\Scripts\activate
+# Linux/Mac
+source .venv/bin/activate
 ```
 
-This command initializes the edital-summarizer Crew, assembling the agents and assigning them tasks as defined in your configuration.
+3. Instale as dependências:
+```bash
+pip install -e .
+```
 
-This example, unmodified, will run the create a `report.md` file with the output of a research on LLMs in the root folder.
+4. Configure a API Key:
+```bash
+# Windows
+set OPENAI_API_KEY=sua-api-key
+# Linux/Mac
+export OPENAI_API_KEY=sua-api-key
+```
 
-## Understanding Your Crew
+## 🎯 Uso
 
-The edital-summarizer Crew is composed of multiple AI agents, each with unique roles, goals, and tools. These agents collaborate on a series of tasks, defined in `config/tasks.yaml`, leveraging their collective skills to achieve complex objectives. The `config/agents.yaml` file outlines the capabilities and configurations of each agent in your crew.
-
-## Support
-
-For support, questions, or feedback regarding the EditalSummarizer Crew or crewAI.
-- Visit our [documentation](https://docs.crewai.com)
-- Reach out to us through our [GitHub repository](https://github.com/joaomdmoura/crewai)
-- [Join our Discord](https://discord.com/invite/X4JWnZnxPb)
-- [Chat with our docs](https://chatg.pt/DWjSBZn)
-
-Let's create wonders together with the power and simplicity of crewAI.
-
-## Processamento Rápido via CMD
-
-Para facilitar o processamento dos editais via linha de comando do Windows, foi criado um script batch que automatiza a execução no WSL Ubuntu.
-
-### Pré-requisitos
-- Windows 10 ou superior
-- WSL Ubuntu instalado
-- Python e dependências instaladas no WSL Ubuntu
-
-### Como Usar
-
-1. Abra o CMD (Prompt de Comando)
-2. Navegue até o diretório do projeto
-3. Execute o comando:
+### Comando Básico
 
 ```bash
-# Uso básico (arquivo de saída padrão: rel.xlsx)
-process_edital.bat samples/edital-001
-
-# Especificando arquivo de saída personalizado
-process_edital.bat samples/edital-001 meu_relatorio.xlsx
+python -m src.edital_summarizer.main \
+  samples/edital-001 \
+  --target "Fornecimento de Notebooks para Uso Administrativo" \
+  --threshold 500 \
+  -o resultado.json \
+  -v
 ```
 
 ### Parâmetros
-- Primeiro parâmetro: Caminho do edital a ser processado
-- Segundo parâmetro (opcional): Nome do arquivo de saída (padrão: rel.xlsx)
+
+- `edital_path_dir`: Caminho para o diretório do edital
+- `--target`: Target para análise (ex: "Fornecimento de Notebooks")
+- `--threshold`: Quantidade mínima para dispositivos (use 0 para serviços)
+- `-o/--output`: Arquivo de saída (JSON)
+- `--force-match`: Força o target_match a ser True
+- `-v/--verbose`: Ativa modo verboso para logs detalhados
 
 ### Exemplos
 
+#### 1. Análise de Notebooks
 ```bash
-# Processar edital com nome de saída padrão
-process_edital.bat samples/edital-001
-
-# Processar edital com nome de saída personalizado
-process_edital.bat samples/edital-001 relatorio_final.xlsx
-
-# Processar edital em subdiretório
-process_edital.bat samples/outros/editais/edital-002
+python -m src.edital_summarizer.main \
+  samples/edital-001 \
+  --target "Fornecimento de Notebooks para Uso Administrativo" \
+  --threshold 500 \
+  -o resultado.json \
+  -v
 ```
 
-O script irá:
-1. Verificar os parâmetros fornecidos
-2. Executar o processamento no WSL Ubuntu
-3. Gerar o arquivo Excel com os resultados
-4. Mostrar mensagem de sucesso ou erro
-
-# Edital Summarizer
-
-Processador de editais de licitação utilizando a CrewAI para análise e resumo de documentos.
-
-## Funcionalidades
-
-- Análise de relevância de documentos para targets específicos
-- Validação de threshold mínimo para dispositivos
-- Geração de resumos executivos
-- Extração de metadados
-- Suporte a múltiplos formatos de documento (PDF, DOCX, TXT, etc.)
-
-## Instalação
-
+#### 2. Serviço de RPA
 ```bash
-pip install edital-summarizer
+python -m src.edital_summarizer.main \
+  samples/edital-001 \
+  --target "Automação de Processos com RPA" \
+  --threshold 0 \
+  -o resultado.json \
+  -v
 ```
 
-## Uso
-
-### Via Linha de Comando
-
+#### 3. Forçar Match
 ```bash
-edital-summarizer <caminho_do_documento> --target "notebook" --threshold 500
+python -m src.edital_summarizer.main \
+  samples/edital-001 \
+  --target "Fornecimento de Tablets para Educação" \
+  --threshold 1000 \
+  --force-match \
+  -o resultado.json \
+  -v
 ```
 
-Parâmetros:
-- `caminho_do_documento`: Caminho para o documento ou diretório de documentos
-- `--target`: Target para análise (ex: "notebook", "tablet", "RPA")
-- `--threshold`: Threshold mínimo para dispositivos (padrão: 500)
-- `--force-match`: Força o target_match a ser True
-- `--output`: Caminho para o arquivo de saída (padrão: "resultado.json")
-- `-v, --verbose`: Ativa modo verboso para exibir logs detalhados
+## 📊 Saída
 
-### Via Python
-
-```python
-from edital_summarizer import process_edital
-
-result = process_edital(
-    document_path="caminho/do/documento.pdf",
-    target="notebook",
-    threshold=500,
-    force_match=False,
-    verbose=True
-)
-```
-
-## Formato da Resposta
-
-A resposta é um objeto JSON com os seguintes campos:
+O sistema retorna um JSON com:
 
 ```json
 {
-    "target_match": true,           // Indica se o documento é relevante para o target
-    "threshold_match": true,        // Indica se o documento atende ao threshold mínimo
-    "threshold_status": "true",     // Status do threshold: "true", "false" ou "inconclusive"
-    "target_summary": "...",        // Resumo específico sobre o target no documento
-    "document_summary": "...",      // Resumo geral do documento
-    "justification": "...",         // Justificativa para não geração do resumo
-    "metadata": {                   // Metadados do documento
-        "identifier": {
-            "public_notice": "...",
-            "process_id": "...",
-            "bid_number": "..."
-        },
-        "organization": {
-            "name": "...",
-            "location": "..."
-        }
-    },
-    "error": null                   // Mensagem de erro, se houver
+    "bid_number": "string",           // Número do edital/licitação
+    "city": "string",                 // Cidade/UF do edital
+    "target_match": true/false,       // O edital é relevante para seu target?
+    "threshold_match": "true/false/inconclusive",  // Atingiu a quantidade mínima?
+    "is_relevant": true/false,        // O edital é relevante considerando todas as regras?
+    "summary": "...",                 // Resumo detalhado do conteúdo do edital
+    "justification": "..."            // Justificativa clara e coerente da decisão
 }
 ```
 
-## Threshold
+## 📁 Estrutura do Projeto
 
-O threshold é uma funcionalidade que permite validar a quantidade mínima de dispositivos mencionada no documento. Por exemplo, se o target for "notebook" e o threshold for 500, o documento só será considerado relevante se mencionar uma quantidade de notebooks maior ou igual a 500.
+```
+edital-summarizer/
+├── src/
+│   └── edital_summarizer/
+│       ├── __init__.py
+│       ├── crew.py          # Lógica principal do processamento
+│       ├── main.py          # Ponto de entrada CLI
+│       ├── schemas.py       # Schemas de dados
+│       ├── agents.py        # Definição dos agentes
+│       ├── config/          # Configurações
+│       │   ├── agents.yaml
+│       │   └── tasks.yaml
+│       ├── tools/          # Ferramentas de processamento
+│       │   ├── file_tools.py
+│       │   ├── document_tools.py
+│       │   └── format_extractor.py
+│       └── utils/          # Utilitários
+│           └── logger.py
+├── samples/                # Exemplos de editais
+├── docs.md                # Documentação detalhada
+├── README.md              # Este arquivo
+├── LICENSE
+└── pyproject.toml         # Configuração do projeto
+```
 
-O status do threshold pode ser:
-- `"true"`: A quantidade mencionada é maior ou igual ao threshold
-- `"false"`: A quantidade mencionada é menor que o threshold
-- `"inconclusive"`: Não foi possível determinar a quantidade com certeza
+## 🔍 Dicas de Uso
 
-## Contribuindo
+1. **Targets Efetivos**
+   - Seja específico: "Fornecimento de Notebooks para Uso Administrativo"
+   - Inclua contexto: "Automação de Processos com RPA para Área Financeira"
+   - Use termos do mercado: "Solução de Inteligência Artificial para Análise de Dados"
 
-1. Faça um fork do projeto
-2. Crie uma branch para sua feature (`git checkout -b feature/nova-feature`)
-3. Faça commit das suas mudanças (`git commit -am 'Adiciona nova feature'`)
-4. Faça push para a branch (`git push origin feature/nova-feature`)
-5. Crie um Pull Request
+2. **Threshold Realista**
+   - Notebooks: 500-1000
+   - Tablets: 1000-2000
+   - Smartphones: 500-1000
 
-## Licença
+3. **Modo Verboso**
+   - Use `-v` para debug e entendimento do processamento
+   - Mostra informações detalhadas sobre cada etapa
 
-Este projeto está licenciado sob a licença MIT - veja o arquivo [LICENSE](LICENSE) para mais detalhes.
+## 📚 Documentação
+
+Para mais detalhes sobre o uso e configuração, consulte:
+- [Documentação Detalhada](docs.md)
+- [Exemplos de Uso](docs.md#exemplos-práticos)
+
+## 📄 Licença
+
+Este projeto está licenciado sob a licença MIT - veja o arquivo [LICENSE](LICENSE) para detalhes.
