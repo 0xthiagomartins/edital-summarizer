@@ -148,26 +148,37 @@ def run():
 
         try:
             logger.info("=== Iniciando processamento com Crew ===")
-            # Cria a instância do crew
-            crew = EditalSummarizer(verbose=args.verbose)
+            # Cria a instância do summarizer
+            summarizer = EditalSummarizer(verbose=args.verbose)
             
-            # Processa o edital
-            result = crew.kickoff(
+            # Cria e executa a crew
+            crew = summarizer.crew(
                 edital_path_dir=edital_path_dir,
                 target=args.target,
                 threshold=args.threshold,
                 force_match=args.force_match
             )
             
+            # Executa o processamento
+            result = crew.kickoff(inputs={
+                "edital_path_dir": edital_path_dir,
+                "target": args.target,
+                "threshold": args.threshold,
+                "force_match": args.force_match
+            })
+            
+            # Processa o resultado
+            processed_result = summarizer.process_output(result)
+            
             # Valida o resultado
-            if not validate_result(result):
+            if not validate_result(processed_result):
                 logger.error("Resultado inválido gerado pelo processamento")
                 sys.exit(1)
             
             logger.info("\n=== Salvando resultado ===")
             # Salva o resultado em JSON
             with open(output_file, 'w', encoding='utf-8') as f:
-                json.dump(result, f, ensure_ascii=False, indent=2)
+                json.dump(processed_result, f, ensure_ascii=False, indent=2)
             
             logger.info(f"Resultado salvo em: {output_file}")
             logger.info("\n=== Processamento concluído ===")
