@@ -10,7 +10,7 @@ def get_logger(name: Optional[str] = None) -> logging.Logger:
         # Configura o handler para stdout
         stdout_handler = logging.StreamHandler(sys.stdout)
         stdout_formatter = logging.Formatter(
-            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+            '%(levelname)s: %(message)s'  # Formato mais conciso
         )
         stdout_handler.setFormatter(stdout_formatter)
         logger.addHandler(stdout_handler)
@@ -18,9 +18,7 @@ def get_logger(name: Optional[str] = None) -> logging.Logger:
         # Configura o handler para stderr (erros)
         stderr_handler = logging.StreamHandler(sys.stderr)
         stderr_formatter = logging.Formatter(
-            '%(asctime)s - %(name)s - %(levelname)s - %(message)s\n'
-            'File "%(pathname)s", line %(lineno)d\n'
-            '%(message)s'
+            'ERROR: %(message)s\nFile "%(pathname)s", line %(lineno)d'  # Formato mais conciso para erros
         )
         stderr_handler.setFormatter(stderr_formatter)
         stderr_handler.setLevel(logging.ERROR)

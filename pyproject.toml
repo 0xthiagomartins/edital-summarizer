@@ -6,7 +6,8 @@ authors = [
     {name = "Samsung SDS", email = "sds@samsung.com"}
 ]
 dependencies = [
-    "crewai>=0.118.0",
+    "crewai>=0.126.0",
+    "crewai-tools>=0.47.0",
     "python-docx>=0.8.11",
     "PyPDF2>=3.0.0",
     "python-pptx>=0.6.21",
