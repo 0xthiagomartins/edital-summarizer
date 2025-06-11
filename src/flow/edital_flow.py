@@ -1,7 +1,7 @@
 from typing import Dict, Any, Optional, List
 from crewai import Flow, LLM
 from crewai.flow.flow import start, listen
-from utils import read_metadata, InformationExtractor
+from utils import read_metadata
 from tools.file_tools import FileReadTool
 from pydantic import BaseModel, Field
 import logging
@@ -108,7 +108,6 @@ class EditalAnalysisFlow(Flow[EditalState]):
         self.target = target
         self.threshold = threshold
         self.force_match = force_match
-        self.extractor = InformationExtractor()
         self.file_tool = FileReadTool()
         logger.info(f"Target: {target}")
         logger.info(f"Threshold: {threshold}")
@@ -148,19 +147,99 @@ class EditalAnalysisFlow(Flow[EditalState]):
             raise
 
     @listen(extract_content)
-    def extract_structured_info(self) -> Dict[str, Any]:
-        """Extrai informações estruturadas do conteúdo."""
-        logger.info("Iniciando extração de informações estruturadas...")
+    def generate_summary(self):
+        """Gera resumo do edital."""
+        logger.info("Iniciando geração de resumo...")
         try:
-            info = self.extractor.extract_all(self.state.content)
-            self.state.structured_info = info
-            logger.info("Informações estruturadas extraídas com sucesso")
-            return info
+            # Inicializa o LLM
+            llm = LLM(
+                model="gpt-4o",
+                temperature=0.7,
+                max_tokens=500,  # Aumentado para permitir um resumo mais detalhado
+                top_p=0.9,
+                frequency_penalty=0.1,
+                presence_penalty=0.1,
+                response_format=SummaryAnalysis
+            )
+
+            # Faz a chamada ao LLM
+            response = llm.call(
+                messages=[
+                    {"role": "system", "content": """Você é um especialista em resumir editais de licitação.
+                    Sua tarefa é gerar um resumo detalhado e estruturado do edital.
+                    
+                    Instruções:
+                    1. Analise cuidadosamente todo o conteúdo
+                    2. Extraia TODAS as informações relevantes:
+                       - Objeto da licitação
+                       - Quantidades e especificações
+                       - Prazos e valores
+                       - Requisitos técnicos
+                       - Condições comerciais
+                    3. Seja detalhado mas conciso
+                    4. Organize as informações em seções claras
+                    5. Máximo 1500 palavras
+                    
+                    IMPORTANTE: Identifique também:
+                    1. A cidade/UF do edital (procure no metadata ou no texto)
+                    2. Informações de contato:
+                       - phone: telefone de contato
+                       - website: site oficial
+                       - email: email de contato
+                    3. Outras informações (em formato texto):
+                       - title: título do edital
+                       - object: objeto da licitação
+                       - quantities: quantidades relevantes (ex: "100 unidades de tablets")
+                       - specifications: especificações técnicas (ex: "Tablets com tela de 10 polegadas")
+                       - deadlines: prazos importantes (ex: "Entrega em 30 dias")
+                       - values: valores relevantes (ex: "Valor total de R$ 500.000,00")
+                    Se não encontrar alguma informação, use string vazia"""},
+                    {"role": "user", "content": f"""
+                    Target: {self.target}
+                    
+                    Metadata:
+                    {json.dumps(self.state.metadata, ensure_ascii=False, indent=2)}
+                    
+                    Conteúdo do Edital:
+                    {self.state.content}
+                    """}
+                ]
+            )
+            
+            logger.info(f"Resumo gerado: {response}")
+            
+            # Converte a string JSON em objeto SummaryAnalysis
+            response_dict = json.loads(response)
+            response_obj = SummaryAnalysis(**response_dict)
+            
+            # Limpa campos vazios
+            cleaned_data = response_obj.clean_empty_fields()
+            
+            # Atualiza o state
+            self.state.summary = cleaned_data.get("summary", "")
+            self.state.city = cleaned_data.get("city", "Não foi possível determinar")
+            
+            # Atualiza o metadata com as informações de contato e outras informações
+            self.state.metadata.update({
+                "phone": cleaned_data.get("phone", ""),
+                "website": cleaned_data.get("website", ""),
+                "email": cleaned_data.get("email", ""),
+                "title": cleaned_data.get("title", ""),
+                "object": cleaned_data.get("object", ""),
+                "quantities": cleaned_data.get("quantities", ""),
+                "specifications": cleaned_data.get("specifications", ""),
+                "deadlines": cleaned_data.get("deadlines", ""),
+                "values": cleaned_data.get("values", "")
+            })
+            
+            logger.info("Resumo salvo com sucesso")
+            return self.state
         except Exception as e:
-            logger.error(f"Erro ao extrair informações estruturadas: {str(e)}")
+            logger.error(f"Erro ao gerar resumo: {str(e)}")
+            logger.error(f"Tipo do erro: {type(e)}")
             raise
 
-    @listen(extract_structured_info)
+    @listen(generate_summary)
     def analyze_target(self):
         """Analisa se o edital é relevante para o target."""
         logger.info("Iniciando análise de target...")
@@ -191,8 +270,13 @@ class EditalAnalysisFlow(Flow[EditalState]):
                     {"role": "user", "content": f"""
                     Target: {self.target}
                     
-                    Conteúdo do Edital:
-                    {self.state.content}
+                    Resumo do Edital:
+                    {self.state.summary}
+                    
+                    Informações Adicionais:
+                    - Objeto: {self.state.metadata.get('object', '')}
+                    - Especificações: {self.state.metadata.get('specifications', '')}
+                    - Quantidades: {self.state.metadata.get('quantities', '')}
                     """}
                 ]
             )
@@ -257,8 +341,12 @@ class EditalAnalysisFlow(Flow[EditalState]):
                     Target: {self.target}
                     Threshold: {self.threshold}
                     
-                    Conteúdo do Edital:
-                    {self.state.content}
+                    Resumo do Edital:
+                    {self.state.summary}
+                    
+                    Informações Adicionais:
+                    - Quantidades: {self.state.metadata.get('quantities', '')}
+                    - Especificações: {self.state.metadata.get('specifications', '')}
                     """}
                 ]
             )
@@ -284,99 +372,6 @@ class EditalAnalysisFlow(Flow[EditalState]):
             raise
 
     @listen(check_threshold)
-    def generate_summary(self):
-        """Gera resumo do edital."""
-        logger.info("Iniciando geração de resumo...")
-        try:
-            # Inicializa o LLM
-            llm = LLM(
-                model="gpt-4o",
-                temperature=0.7,
-                max_tokens=300,  # Reduzido para garantir resumo mais conciso
-                top_p=0.9,
-                frequency_penalty=0.1,
-                presence_penalty=0.1,
-                response_format=SummaryAnalysis
-            )
-
-            # Faz a chamada ao LLM
-            response = llm.call(
-                messages=[
-                    {"role": "system", "content": """Você é um especialista em resumir editais de licitação.
-                    Sua tarefa é gerar um resumo extremamente conciso e direto do edital.
-                    
-                    Instruções:
-                    1. Resuma em 1-2 parágrafos curtos
-                    2. Foque APENAS em:
-                       - Objeto da licitação
-                       - Quantidades relevantes (se houver)
-                       - Especificações técnicas importantes (se houver)
-                       - Prazos críticos (se houver)
-                       - Valores significativos (se houver)
-                    3. Se não encontrar alguma informação, não mencione
-                    4. Seja direto e objetivo
-                    5. Máximo 150 palavras
-                    
-                    IMPORTANTE: Identifique também:
-                    1. A cidade/UF do edital (procure no metadata ou no texto)
-                    2. Informações de contato:
-                       - phone: telefone de contato
-                       - website: site oficial
-                       - email: email de contato
-                    3. Outras informações (em formato texto):
-                       - title: título do edital
-                       - object: objeto da licitação
-                       - quantities: quantidades relevantes (ex: "100 unidades de tablets")
-                       - specifications: especificações técnicas (ex: "Tablets com tela de 10 polegadas")
-                       - deadlines: prazos importantes (ex: "Entrega em 30 dias")
-                       - values: valores relevantes (ex: "Valor total de R$ 500.000,00")
-                    Se não encontrar alguma informação, use string vazia"""},
-                    {"role": "user", "content": f"""
-                    Target: {self.target}
-                    
-                    Metadata:
-                    {json.dumps(self.state.metadata, ensure_ascii=False, indent=2)}
-                    
-                    Conteúdo do Edital:
-                    {self.state.content}
-                    """}
-                ]
-            )
-            
-            logger.info(f"Resumo gerado: {response}")
-            
-            # Converte a string JSON em objeto SummaryAnalysis
-            response_dict = json.loads(response)
-            response_obj = SummaryAnalysis(**response_dict)
-            
-            # Limpa campos vazios
-            cleaned_data = response_obj.clean_empty_fields()
-            
-            # Atualiza o state
-            self.state.summary = cleaned_data.get("summary", "")
-            self.state.city = cleaned_data.get("city", "Não foi possível determinar")
-            
-            # Atualiza o metadata com as informações de contato e outras informações
-            self.state.metadata.update({
-                "phone": cleaned_data.get("phone", ""),
-                "website": cleaned_data.get("website", ""),
-                "email": cleaned_data.get("email", ""),
-                "title": cleaned_data.get("title", ""),
-                "object": cleaned_data.get("object", ""),
-                "quantities": cleaned_data.get("quantities", ""),
-                "specifications": cleaned_data.get("specifications", ""),
-                "deadlines": cleaned_data.get("deadlines", ""),
-                "values": cleaned_data.get("values", "")
-            })
-            
-            logger.info("Resumo salvo com sucesso")
-            return self.state
-        except Exception as e:
-            logger.error(f"Erro ao gerar resumo: {str(e)}")
-            logger.error(f"Tipo do erro: {type(e)}")
-            raise
-
-    @listen(generate_summary)
     def generate_justification(self) -> EditalState:
         """Gera justificativa para a decisão."""
         logger.info("Iniciando geração de justificativa...")

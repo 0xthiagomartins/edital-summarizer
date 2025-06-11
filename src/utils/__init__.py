@@ -24,7 +24,6 @@ def load_yaml_config(path: str) -> Dict[str, Any]:
 
 from .logger import get_logger
 from .metadata import read_metadata
-from .extractor import extract_info, ExtractedInfo, InformationExtractor
 
 logger = get_logger(__name__)
 
@@ -129,9 +128,6 @@ __all__ = [
     'get_logger',
     'load_yaml_config',
     'read_metadata',
-    'extract_info',
-    'ExtractedInfo',
     'parse_args',
     'check_environment',
-    'InformationExtractor'
 ] 
