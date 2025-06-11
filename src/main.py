@@ -41,11 +41,54 @@ def run(
             force_match=force_match,
         )
         
+        # Extrai apenas os campos relevantes
+        output = {
+            "bid_number": result.bid_number,
+            "city": result.city,
+            "metadata": {
+                "title": result.metadata.get("title", ""),
+                "object": result.metadata.get("object", ""),
+                "quantities": result.metadata.get("quantities", ""),
+                "specifications": result.metadata.get("specifications", ""),
+                "deadlines": result.metadata.get("deadlines", ""),
+                "values": result.metadata.get("values", ""),
+                "phone": result.metadata.get("phone", ""),
+                "website": result.metadata.get("website", ""),
+                "email": result.metadata.get("email", "")
+            },
+            "target_match": result.target_match,
+            "threshold_match": result.threshold_match,
+            "is_relevant": result.is_relevant,
+            "summary": result.summary,
+            "justification": result.justification
+        }
+        
         # Salva o resultado
         logger.info("Salvando resultado...")
         with open(output_file, "w", encoding="utf-8") as f:
-            json.dump(result.model_dump(), f, ensure_ascii=False, indent=2)
+            json.dump(output, f, ensure_ascii=False, indent=2)
         logger.info(f"Resultado salvo em: {output_file}")
+        
+        # Mostra informações relevantes no log
+        logger.info("\n=== Resumo do Processamento ===")
+        logger.info(f"Número do Edital: {result.bid_number}")
+        logger.info(f"Cidade/UF: {result.city}")
+        logger.info(f"Título: {result.metadata.get('title', 'Não informado')}")
+        logger.info(f"Objeto: {result.metadata.get('object', 'Não informado')}")
+        logger.info(f"Quantidades: {result.metadata.get('quantities', 'Não informado')}")
+        logger.info(f"Especificações: {result.metadata.get('specifications', 'Não informado')}")
+        logger.info(f"Prazos: {result.metadata.get('deadlines', 'Não informado')}")
+        logger.info(f"Valores: {result.metadata.get('values', 'Não informado')}")
+        logger.info(f"Contatos:")
+        logger.info(f"  - Telefone: {result.metadata.get('phone', 'Não informado')}")
+        logger.info(f"  - Website: {result.metadata.get('website', 'Não informado')}")
+        logger.info(f"  - Email: {result.metadata.get('email', 'Não informado')}")
+        logger.info(f"\nRelevância:")
+        logger.info(f"  - Match com Target: {'Sim' if result.target_match else 'Não'}")
+        logger.info(f"  - Match com Threshold: {result.threshold_match}")
+        logger.info(f"  - Edital Relevante: {'Sim' if result.is_relevant else 'Não'}")
+        logger.info(f"\nResumo: {result.summary}")
+        logger.info(f"\nJustificativa: {result.justification}")
         
         return result
         
@@ -63,10 +106,11 @@ def main():
     setup_environment()
     
     # Log inicial
-    logger.info("=== Iniciando processamento ===")
+    logger.info("\n=== Iniciando Processamento ===")
     logger.info(f"Edital: {args.edital_path_dir}")
     logger.info(f"Target: {args.target}")
     logger.info(f"Threshold: {args.threshold}")
+    logger.info(f"Forçar Match: {'Sim' if args.force_match else 'Não'}")
     
     # Mostra nível de verbosidade
     verbosity_levels = {
@@ -76,6 +120,8 @@ def main():
         3: "Máximo (TRACE)"
     }
     logger.info(f"Nível de Verbosidade: {verbosity_levels.get(args.verbose, 'Máximo (TRACE)')}")
+    logger.info(f"Arquivo de Saída: {args.output}")
+    logger.info("=" * 50)
     
     # Executa o processamento
     result = run(
@@ -87,9 +133,9 @@ def main():
     )
     
     if result:
-        logger.info("=== Processamento concluído ===")
+        logger.info("\n=== Processamento Concluído com Sucesso ===")
     else:
-        logger.error("Ocorreu um erro durante o processamento.")
+        logger.error("\n=== Ocorreu um Erro Durante o Processamento ===")
         sys.exit(1)
 
 if __name__ == "__main__":

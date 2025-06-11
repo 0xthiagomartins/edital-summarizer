@@ -38,25 +38,21 @@ class QuantitiesAnalysis(BaseModel):
 class SummaryAnalysis(BaseModel):
     """Resumo do edital."""
     summary: str = Field(description="Resumo textual do edital, incluindo informações relevantes encontradas")
-    title: Optional[str] = Field(default=None, description="Título do edital (opcional)")
-    object: Optional[str] = Field(default=None, description="Objeto da licitação (opcional)")
-    quantities: Optional[List[Dict[str, Any]]] = Field(
-        default_factory=list,
-        description="Quantidades relevantes encontradas (opcional)"
-    )
-    specifications: Optional[List[str]] = Field(
-        default_factory=list,
-        description="Especificações técnicas relevantes encontradas (opcional)"
-    )
-    deadlines: Optional[List[str]] = Field(
-        default_factory=list,
-        description="Prazos importantes encontrados (opcional)"
-    )
-    values: Optional[List[str]] = Field(
-        default_factory=list,
-        description="Valores relevantes encontrados (opcional)"
-    )
+    city: str = Field(description="Cidade/UF do edital (ou 'Não foi possível determinar' se não encontrado)")
+    phone: str = Field(default="", description="Telefone de contato (ou string vazia se não encontrado)")
+    website: str = Field(default="", description="Website (ou string vazia se não encontrado)")
+    email: str = Field(default="", description="Email de contato (ou string vazia se não encontrado)")
+    title: str = Field(default="", description="Título do edital")
+    object: str = Field(default="", description="Objeto da licitação")
+    quantities: str = Field(default="", description="Quantidades relevantes encontradas (em formato texto)")
+    specifications: str = Field(default="", description="Especificações técnicas relevantes encontradas (em formato texto)")
+    deadlines: str = Field(default="", description="Prazos importantes encontrados (em formato texto)")
+    values: str = Field(default="", description="Valores relevantes encontrados (em formato texto)")
 
+    def clean_empty_fields(self) -> Dict[str, Any]:
+        """Remove campos vazios do modelo."""
+        data = self.model_dump()
+        return {k: v for k, v in data.items() if v and v != ""}
 
 class JustificationAnalysis(BaseModel):
     """Justificativa da decisão."""
@@ -86,7 +82,7 @@ class EditalState(BaseModel):
     
     # Metadata e conteúdo
     metadata: Dict[str, Any] = {}
-    content: str = ""
+    content: str = ""  # Campo interno, não será incluído no output
     structured_info: Dict[str, Any] = {}
     
     # Resultados da análise
@@ -97,6 +93,12 @@ class EditalState(BaseModel):
     # Saídas
     summary: str = ""
     justification: str = ""
+
+    class Config:
+        json_encoders = {
+            # Exclui campos internos do output JSON
+            "content": lambda _: None
+        }
 
 class EditalAnalysisFlow(Flow[EditalState]):
     """Flow para análise de editais."""
@@ -119,6 +121,12 @@ class EditalAnalysisFlow(Flow[EditalState]):
         try:
             metadata = read_metadata(self.state.edital_path_dir)
             self.state.metadata = metadata
+            
+            # Extrai bid_number do metadata
+            if "bid_number" in metadata:
+                self.state.bid_number = metadata["bid_number"]
+                logger.info(f"Bid number extraído: {self.state.bid_number}")
+            
             logger.info("Metadata extraída com sucesso")
             return metadata
         except Exception as e:
@@ -153,7 +161,7 @@ class EditalAnalysisFlow(Flow[EditalState]):
             raise
 
     @listen(extract_structured_info)
-    def analyze_target(self) -> EditalState:
+    def analyze_target(self):
         """Analisa se o edital é relevante para o target."""
         logger.info("Iniciando análise de target...")
         try:
@@ -276,7 +284,7 @@ class EditalAnalysisFlow(Flow[EditalState]):
             raise
 
     @listen(check_threshold)
-    def generate_summary(self) -> EditalState:
+    def generate_summary(self):
         """Gera resumo do edital."""
         logger.info("Iniciando geração de resumo...")
         try:
@@ -284,32 +292,50 @@ class EditalAnalysisFlow(Flow[EditalState]):
             llm = LLM(
                 model="gpt-4o",
                 temperature=0.7,
-                max_tokens=500,  # Reduzido para garantir resumo conciso
+                max_tokens=300,  # Reduzido para garantir resumo mais conciso
                 top_p=0.9,
                 frequency_penalty=0.1,
-                presence_penalty=0.1
+                presence_penalty=0.1,
+                response_format=SummaryAnalysis
             )
 
             # Faz a chamada ao LLM
             response = llm.call(
                 messages=[
                     {"role": "system", "content": """Você é um especialista em resumir editais de licitação.
-                    Sua tarefa é gerar um resumo conciso e direto do edital.
+                    Sua tarefa é gerar um resumo extremamente conciso e direto do edital.
                     
                     Instruções:
-                    1. Resuma em 2-3 parágrafos curtos
-                    2. Foque em informações relevantes para o target
-                    3. Inclua apenas se encontrar:
+                    1. Resuma em 1-2 parágrafos curtos
+                    2. Foque APENAS em:
                        - Objeto da licitação
-                       - Quantidades relevantes
-                       - Especificações técnicas importantes
-                       - Prazos críticos
-                       - Valores significativos
-                    4. Se não encontrar alguma informação, não mencione
-                    5. Seja direto e objetivo
-                    6. Máximo 300 palavras"""},
+                       - Quantidades relevantes (se houver)
+                       - Especificações técnicas importantes (se houver)
+                       - Prazos críticos (se houver)
+                       - Valores significativos (se houver)
+                    3. Se não encontrar alguma informação, não mencione
+                    4. Seja direto e objetivo
+                    5. Máximo 150 palavras
+                    
+                    IMPORTANTE: Identifique também:
+                    1. A cidade/UF do edital (procure no metadata ou no texto)
+                    2. Informações de contato:
+                       - phone: telefone de contato
+                       - website: site oficial
+                       - email: email de contato
+                    3. Outras informações (em formato texto):
+                       - title: título do edital
+                       - object: objeto da licitação
+                       - quantities: quantidades relevantes (ex: "100 unidades de tablets")
+                       - specifications: especificações técnicas (ex: "Tablets com tela de 10 polegadas")
+                       - deadlines: prazos importantes (ex: "Entrega em 30 dias")
+                       - values: valores relevantes (ex: "Valor total de R$ 500.000,00")
+                    Se não encontrar alguma informação, use string vazia"""},
                     {"role": "user", "content": f"""
                     Target: {self.target}
+                    
+                    Metadata:
+                    {json.dumps(self.state.metadata, ensure_ascii=False, indent=2)}
                     
                     Conteúdo do Edital:
                     {self.state.content}
@@ -318,7 +344,31 @@ class EditalAnalysisFlow(Flow[EditalState]):
             )
             
             logger.info(f"Resumo gerado: {response}")
-            self.state.summary = response
+            
+            # Converte a string JSON em objeto SummaryAnalysis
+            response_dict = json.loads(response)
+            response_obj = SummaryAnalysis(**response_dict)
+            
+            # Limpa campos vazios
+            cleaned_data = response_obj.clean_empty_fields()
+            
+            # Atualiza o state
+            self.state.summary = cleaned_data.get("summary", "")
+            self.state.city = cleaned_data.get("city", "Não foi possível determinar")
+            
+            # Atualiza o metadata com as informações de contato e outras informações
+            self.state.metadata.update({
+                "phone": cleaned_data.get("phone", ""),
+                "website": cleaned_data.get("website", ""),
+                "email": cleaned_data.get("email", ""),
+                "title": cleaned_data.get("title", ""),
+                "object": cleaned_data.get("object", ""),
+                "quantities": cleaned_data.get("quantities", ""),
+                "specifications": cleaned_data.get("specifications", ""),
+                "deadlines": cleaned_data.get("deadlines", ""),
+                "values": cleaned_data.get("values", "")
+            })
+            
             logger.info("Resumo salvo com sucesso")
             return self.state
         except Exception as e:
@@ -335,23 +385,28 @@ class EditalAnalysisFlow(Flow[EditalState]):
             llm = LLM(
                 model="gpt-4o",
                 temperature=0.7,
-                max_tokens=1000,
+                max_tokens=200,  # Reduzido para garantir justificativa concisa
                 top_p=0.9,
                 frequency_penalty=0.1,
-                presence_penalty=0.1,
-                response_format=JustificationAnalysis
+                presence_penalty=0.1
             )
 
             # Faz a chamada ao LLM
             response = llm.call(
                 messages=[
                     {"role": "system", "content": """Você é um especialista em justificar decisões sobre editais.
-                    Sua tarefa é gerar uma justificativa clara e objetiva.
+                    Sua tarefa é gerar uma justificativa extremamente concisa e direta.
                     
-                    Considere:
-                    1. Match com o target
-                    2. Verificação de threshold
-                    3. Contexto do edital"""},
+                    Instruções:
+                    1. Seja direto e objetivo
+                    2. Explique APENAS os motivos principais da decisão
+                    3. Se não relevante:
+                       - Explique por que não match com o target
+                       - Explique por que não atingiu o threshold (se aplicável)
+                    4. Se relevante:
+                       - Explique por que match com o target
+                       - Explique por que atingiu o threshold (se aplicável)
+                    5. Máximo 100 palavras"""},
                     {"role": "user", "content": f"""
                     Target: {self.target}
                     Target Match: {self.state.target_match}
@@ -364,13 +419,8 @@ class EditalAnalysisFlow(Flow[EditalState]):
                 ]
             )
             
-            logger.info(f"Conteúdo do JustificationAnalysis: {response}")
-            
-            # Converte a string JSON em objeto JustificationAnalysis
-            response_dict = json.loads(response)
-            response_obj = JustificationAnalysis(**response_dict)
-            
-            self.state.justification = response_obj.model_dump_json(indent=2)
+            logger.info(f"Justificativa gerada: {response}")
+            self.state.justification = response
             
             # Define se o edital é relevante
             self.state.is_relevant = (
@@ -378,7 +428,7 @@ class EditalAnalysisFlow(Flow[EditalState]):
                 (self.threshold == 0 or self.state.threshold_match == "true")
             )
             
-            logger.info("Justificativa gerada com sucesso")
+            logger.info("Justificativa salva com sucesso")
             return self.state
         except Exception as e:
             logger.error(f"Erro ao gerar justificativa: {str(e)}")
