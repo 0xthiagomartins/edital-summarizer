@@ -380,7 +380,7 @@ class EditalAnalysisFlow(Flow[EditalState]):
             llm = LLM(
                 model="gpt-4o",
                 temperature=0.7,
-                max_tokens=200,  # Reduzido para garantir justificativa concisa
+                max_tokens=250,  
                 top_p=0.9,
                 frequency_penalty=0.1,
                 presence_penalty=0.1
@@ -394,14 +394,12 @@ class EditalAnalysisFlow(Flow[EditalState]):
                     
                     Instruções:
                     1. Seja direto e objetivo
-                    2. Explique APENAS os motivos principais da decisão
+                    2. Use no máximo 2 frases
                     3. Se não relevante:
-                       - Explique por que não match com o target
-                       - Explique por que não atingiu o threshold (se aplicável)
+                       - Explique APENAS o motivo principal (target ou threshold)
                     4. Se relevante:
-                       - Explique por que match com o target
-                       - Explique por que atingiu o threshold (se aplicável)
-                    5. Máximo 100 palavras"""},
+                       - Explique APENAS o ponto mais forte (target ou quantidade)
+                    5. Máximo 50 palavras"""},
                     {"role": "user", "content": f"""
                     Target: {self.target}
                     Target Match: {self.state.target_match}

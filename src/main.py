@@ -45,16 +45,16 @@ def run(
         output = {
             "bid_number": result.bid_number,
             "city": result.city,
+            "phone": result.metadata.get("phone", ""),
+            "website": result.metadata.get("website", ""),
+            "email": result.metadata.get("email", ""),
+            "deadlines": result.metadata.get("deadlines", ""),
             "metadata": {
                 "title": result.metadata.get("title", ""),
                 "object": result.metadata.get("object", ""),
                 "quantities": result.metadata.get("quantities", ""),
                 "specifications": result.metadata.get("specifications", ""),
-                "deadlines": result.metadata.get("deadlines", ""),
-                "values": result.metadata.get("values", ""),
-                "phone": result.metadata.get("phone", ""),
-                "website": result.metadata.get("website", ""),
-                "email": result.metadata.get("email", "")
+                "values": result.metadata.get("values", "")
             },
             "target_match": result.target_match,
             "threshold_match": result.threshold_match,
