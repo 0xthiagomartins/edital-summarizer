@@ -18,19 +18,16 @@ class TargetAnalysis(BaseModel):
 
 class QuantitiesAnalysis(BaseModel):
     """Análise de quantidades do edital."""
-    quantities: List[Dict[str, Any]] = Field(
-        description="Lista de quantidades encontradas",
-        default_factory=list
-    )
     total_quantity: int = Field(description="Quantidade total relevante")
     unit: str = Field(description="Unidade de medida (unidade, peça, etc)")
+    explanation: str = Field(description="Explicação de como chegou na quantidade total")
 
     model_config = {
         "json_schema_extra": {
             "examples": [{
-                "quantities": [{"value": 100, "context": "Exemplo de contexto"}],
                 "total_quantity": 100,
-                "unit": "unidades"
+                "unit": "unidades",
+                "explanation": "Encontrei 100 unidades mencionadas no edital"
             }]
         }
     }
@@ -333,20 +330,25 @@ class EditalAnalysisFlow(Flow[EditalState]):
                     {"role": "system", "content": """Você é um especialista em análise de quantidades em editais.
                     Sua tarefa é identificar e somar todas as quantidades relevantes para o target.
                     
-                    Considere:
-                    1. Diferentes unidades de medida
-                    2. Quantidades em tabelas e listas
-                    3. Quantidades em texto corrido"""},
+                    Instruções:
+                    1. Analise cuidadosamente o resumo do edital
+                    2. Identifique TODAS as quantidades mencionadas
+                    3. Some as quantidades relevantes para o target
+                    4. Especifique a unidade de medida
+                    5. Explique como chegou na quantidade total
+                    
+                    Exemplo de resposta:
+                    {
+                        "total_quantity": 100,
+                        "unit": "unidades",
+                        "explanation": "Encontrei 100 unidades mencionadas no edital"
+                    }"""},
                     {"role": "user", "content": f"""
                     Target: {self.target}
                     Threshold: {self.threshold}
                     
                     Resumo do Edital:
                     {self.state.summary}
-                    
-                    Informações Adicionais:
-                    - Quantidades: {self.state.metadata.get('quantities', '')}
-                    - Especificações: {self.state.metadata.get('specifications', '')}
                     """}
                 ]
             )
@@ -360,10 +362,13 @@ class EditalAnalysisFlow(Flow[EditalState]):
             # Verifica se a quantidade total atende ao threshold
             if response_obj.total_quantity >= self.threshold:
                 self.state.threshold_match = "true"
-                logger.info(f"Quantidade {response_obj.total_quantity} >= threshold {self.threshold}")
+                logger.info(f"Quantidade {response_obj.total_quantity} {response_obj.unit} >= threshold {self.threshold}")
             else:
                 self.state.threshold_match = "false"
-                logger.info(f"Quantidade {response_obj.total_quantity} < threshold {self.threshold}")
+                logger.info(f"Quantidade {response_obj.total_quantity} {response_obj.unit} < threshold {self.threshold}")
+            
+            # Atualiza o metadata com a explicação
+            self.state.metadata["quantities"] = f"{response_obj.total_quantity} {response_obj.unit} - {response_obj.explanation}"
             
             return self.state
         except Exception as e:
@@ -380,7 +385,7 @@ class EditalAnalysisFlow(Flow[EditalState]):
             llm = LLM(
                 model="gpt-4o",
                 temperature=0.7,
-                max_tokens=250,  
+                max_tokens=250,
                 top_p=0.9,
                 frequency_penalty=0.1,
                 presence_penalty=0.1
@@ -392,13 +397,29 @@ class EditalAnalysisFlow(Flow[EditalState]):
                     {"role": "system", "content": """Você é um especialista em justificar decisões sobre editais.
                     Sua tarefa é gerar uma justificativa extremamente concisa e direta.
                     
+                    Lógica de Decisão:
+                    1. Target Match (true/false):
+                       - true: O edital menciona o target ou equipamentos/serviços similares
+                       - false: O edital não menciona nada relacionado ao target
+                    
+                    2. Threshold Match ("true"/"false"/"inconclusive"):
+                       - "true": Quantidade >= threshold
+                       - "false": Quantidade < threshold
+                       - "inconclusive": Não foi possível determinar a quantidade
+                    
+                    3. Edital Relevante (is_relevant):
+                       - true: target_match=true E (threshold=0 OU threshold_match="true")
+                       - false: target_match=false OU threshold_match="false"
+                    
                     Instruções:
                     1. Seja direto e objetivo
                     2. Use no máximo 2 frases
                     3. Se não relevante:
-                       - Explique APENAS o motivo principal (target ou threshold)
+                       - Se target_match=false: Explique por que não encontrou o target
+                       - Se threshold_match="false": Explique por que a quantidade é insuficiente
                     4. Se relevante:
-                       - Explique APENAS o ponto mais forte (target ou quantidade)
+                       - Se threshold=0: Explique por que o target é relevante
+                       - Se threshold>0: Explique por que a quantidade é suficiente
                     5. Máximo 50 palavras"""},
                     {"role": "user", "content": f"""
                     Target: {self.target}
