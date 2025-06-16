@@ -2,7 +2,7 @@ from typing import Dict, Any, Optional, List
 from crewai import Flow, LLM
 from crewai.flow.flow import start, listen
 from utils import read_metadata
-from tools.file_tools import FileReadTool
+from tools.file_tools import FileReadTool, DocumentTooLargeError
 from pydantic import BaseModel, Field
 import logging
 import json
@@ -139,6 +139,21 @@ class EditalAnalysisFlow(Flow[EditalState]):
             self.state.content = content
             logger.info("Conteúdo extraído com sucesso")
             return content
+        except DocumentTooLargeError as e:
+            logger.error(f"Documento muito grande: {str(e)}")
+            # Marca o edital como não relevante
+            self.state.target_match = False
+            self.state.threshold_match = "inconclusive"
+            self.state.is_relevant = False
+            # Gera uma justificativa explicando o problema
+            self.state.justification = (
+                f"Não foi possível processar a análise por completo pois o documento é muito grande "
+                f"(tamanho atual: {e.actual_chars} caracteres, limite: {e.max_chars} caracteres). "
+                f"Por segurança, o edital foi marcado como não relevante."
+            )
+            # Atualiza o metadata com a informação do erro
+            self.state.metadata["error"] = f"Documento muito grande: {str(e)}"
+            return ""
         except Exception as e:
             logger.error(f"Erro ao extrair conteúdo: {str(e)}")
             raise
@@ -152,7 +167,7 @@ class EditalAnalysisFlow(Flow[EditalState]):
             llm = LLM(
                 model="gpt-4o",
                 temperature=0.7,
-                max_tokens=500,  # Aumentado para permitir um resumo mais detalhado
+                max_tokens=1000,  # Aumentado para permitir um resumo mais detalhado
                 top_p=0.9,
                 frequency_penalty=0.1,
                 presence_penalty=0.1,
@@ -302,17 +317,20 @@ class EditalAnalysisFlow(Flow[EditalState]):
     def check_threshold(self) -> EditalState:
         """Verifica se o edital atende ao threshold."""
         logger.info("Iniciando verificação de threshold...")
+        
+        # Caso 1: Threshold = 0 (serviço)
+        if self.threshold == 0:
+            self.state.threshold_match = "true"
+            logger.info("Threshold = 0, ignorando verificação")
+            return self.state
+
+        # Caso 2: Target não match
+        if not self.state.target_match:
+            self.state.threshold_match = "false"
+            logger.info("Target não match, threshold = false")
+            return self.state
+
         try:
-            if self.threshold == 0:
-                self.state.threshold_match = "true"
-                logger.info("Threshold = 0, ignorando verificação")
-                return self.state
-
-            if not self.state.target_match:
-                self.state.threshold_match = "false"
-                logger.info("Target não match, threshold = false")
-                return self.state
-
             # Inicializa o LLM
             llm = LLM(
                 model="gpt-4o",
@@ -355,9 +373,48 @@ class EditalAnalysisFlow(Flow[EditalState]):
             
             logger.info(f"Conteúdo do QuantitiesAnalysis: {response}")
             
-            # Converte a string JSON em objeto QuantitiesAnalysis
-            response_dict = json.loads(response)
-            response_obj = QuantitiesAnalysis(**response_dict)
+            # Validação 1: Verifica se a resposta é um JSON válido
+            try:
+                response_dict = json.loads(response)
+            except json.JSONDecodeError as e:
+                logger.error(f"Erro ao decodificar JSON: {str(e)}")
+                self.state.threshold_match = "inconclusive"
+                self.state.metadata["quantities"] = "Erro ao processar quantidades: resposta inválida"
+                return self.state
+            
+            # Validação 2: Verifica se todos os campos obrigatórios estão presentes
+            required_fields = ["total_quantity", "unit", "explanation"]
+            missing_fields = [field for field in required_fields if field not in response_dict]
+            if missing_fields:
+                logger.error(f"Campos obrigatórios ausentes: {missing_fields}")
+                self.state.threshold_match = "inconclusive"
+                self.state.metadata["quantities"] = f"Erro ao processar quantidades: campos ausentes ({', '.join(missing_fields)})"
+                return self.state
+            
+            # Validação 3: Verifica se total_quantity é um número válido
+            try:
+                total_quantity = int(response_dict["total_quantity"])
+                if total_quantity < 0:
+                    raise ValueError("Quantidade não pode ser negativa")
+            except (ValueError, TypeError) as e:
+                logger.error(f"Erro ao validar quantidade: {str(e)}")
+                self.state.threshold_match = "inconclusive"
+                self.state.metadata["quantities"] = "Erro ao processar quantidades: valor inválido"
+                return self.state
+            
+            # Validação 4: Verifica se unit é uma string não vazia
+            if not response_dict["unit"] or not isinstance(response_dict["unit"], str):
+                logger.error("Unidade de medida inválida")
+                self.state.threshold_match = "inconclusive"
+                self.state.metadata["quantities"] = "Erro ao processar quantidades: unidade inválida"
+                return self.state
+            
+            # Cria o objeto QuantitiesAnalysis com os dados validados
+            response_obj = QuantitiesAnalysis(
+                total_quantity=total_quantity,
+                unit=response_dict["unit"],
+                explanation=response_dict["explanation"]
+            )
             
             # Verifica se a quantidade total atende ao threshold
             if response_obj.total_quantity >= self.threshold:
@@ -371,10 +428,14 @@ class EditalAnalysisFlow(Flow[EditalState]):
             self.state.metadata["quantities"] = f"{response_obj.total_quantity} {response_obj.unit} - {response_obj.explanation}"
             
             return self.state
+            
         except Exception as e:
             logger.error(f"Erro ao verificar threshold: {str(e)}")
             logger.error(f"Tipo do erro: {type(e)}")
-            raise
+            # Em caso de erro, marca como inconclusive
+            self.state.threshold_match = "inconclusive"
+            self.state.metadata["quantities"] = f"Erro ao processar quantidades: {str(e)}"
+            return self.state
 
     @listen(check_threshold)
     def generate_justification(self) -> EditalState:

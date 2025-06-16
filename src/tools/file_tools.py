@@ -13,10 +13,17 @@ import docx
 
 logger = logging.getLogger(__name__)
 
+class DocumentTooLargeError(Exception):
+    """Exceção lançada quando o documento excede o limite de caracteres."""
+    def __init__(self, max_chars: int, actual_chars: int):
+        self.max_chars = max_chars
+        self.actual_chars = actual_chars
+        super().__init__(f"Documento excede o limite de {max_chars} caracteres (tamanho atual: {actual_chars})")
+
 class FileReadToolInput(BaseModel):
     """Input schema for FileReadTool."""
     file_path: str = Field(..., description="Path to the file to be read.")
-    max_chars: int = Field(20000, description="Maximum number of characters to return.")
+    max_chars: int = Field(30000, description="Maximum number of characters to return.")
 
 class FileReadTool(BaseTool):
     """Tool for reading different file formats."""
@@ -28,7 +35,7 @@ class FileReadTool(BaseTool):
     )
     args_schema: Type[BaseModel] = FileReadToolInput
 
-    def _run(self, file_path: str, max_chars: int = 20000) -> str:
+    def _run(self, file_path: str, max_chars: int = 30000) -> str:
         """Read file content and return it as text."""
         try:
             logger.info(f"Tentando ler arquivo: {file_path}")
@@ -56,13 +63,16 @@ class FileReadTool(BaseTool):
                     with open(file_path, "r", encoding="utf-8", errors="replace") as file:
                         text = file.read()
 
-                # Limita tamanho do texto
+                # Verifica limite de caracteres
                 if len(text) > max_chars:
-                    text = text[:max_chars] + f"\n\n[Texto truncado em {max_chars} caracteres]"
+                    raise DocumentTooLargeError(max_chars, len(text))
 
                 logger.info(f"Arquivo lido com sucesso: {file_path}")
                 return text
                 
+            except DocumentTooLargeError as e:
+                logger.error(f"Documento muito grande: {str(e)}")
+                raise
             except Exception as e:
                 logger.error(f"Erro ao ler arquivo {file_path}: {str(e)}")
                 return f"Error reading file: {str(e)}"
