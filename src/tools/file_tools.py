@@ -13,6 +13,32 @@ from utils import get_logger
 
 logger = get_logger(__name__)
 
+def clean_text(text: str) -> str:
+    """Limpa e otimiza o texto removendo espaços desnecessários e caracteres especiais."""
+    if not text:
+        return text
+        
+    # Remove caracteres nulos e outros caracteres especiais
+    text = text.replace('\x00', '')
+    text = text.replace('\r', ' ')
+    
+    # Remove múltiplos espaços em branco
+    text = re.sub(r'\s+', ' ', text)
+    
+    # Remove espaços antes e depois de pontuação
+    text = re.sub(r'\s+([.,;:!?])', r'\1', text)
+    
+    # Remove quebras de linha desnecessárias
+    text = re.sub(r'\n\s*\n', '\n', text)
+    
+    # Remove espaços no início e fim de cada linha
+    text = '\n'.join(line.strip() for line in text.split('\n'))
+    
+    # Remove linhas vazias no início e fim do texto
+    text = text.strip()
+    
+    return text
+
 class DocumentTooLargeError(Exception):
     """Exceção lançada quando o documento excede o limite de caracteres."""
     def __init__(self, max_chars: int, actual_chars: int):
@@ -28,7 +54,7 @@ class DocumentTooLargeError(Exception):
 class FileReadToolInput(BaseModel):
     """Input schema for FileReadTool."""
     file_path: str = Field(..., description="Path to the file to be read.")
-    max_chars: int = Field(30000, description="Maximum number of characters to return.")
+    max_chars: int = Field(100000, description="Maximum number of characters to return.")
 
 class FileReadTool(BaseTool):
     """Tool for reading different file formats."""
@@ -40,7 +66,7 @@ class FileReadTool(BaseTool):
     )
     args_schema: Type[BaseModel] = FileReadToolInput
 
-    def _run(self, file_path: str, max_chars: int = 30000) -> str:
+    def _run(self, file_path: str, max_chars: int = 100000) -> str:
         """Read file content and return it as text."""
         try:
             print(f"\n{'='*50}")
@@ -78,7 +104,14 @@ class FileReadTool(BaseTool):
                     with open(file_path, "r", encoding="utf-8", errors="replace") as file:
                         text = file.read()
 
-                print(f"FileReadTool: Texto extraído. Tamanho: {len(text)} caracteres")
+                # Limpa e otimiza o texto
+                print("FileReadTool: Limpando e otimizando texto...")
+                original_size = len(text)
+                text = clean_text(text)
+                cleaned_size = len(text)
+                print(f"FileReadTool: Tamanho original: {original_size} caracteres")
+                print(f"FileReadTool: Tamanho após limpeza: {cleaned_size} caracteres")
+                print(f"FileReadTool: Redução: {original_size - cleaned_size} caracteres ({(original_size - cleaned_size)/original_size*100:.1f}%)")
 
                 # Verifica limite de caracteres
                 if len(text) > max_chars:
@@ -113,7 +146,7 @@ class FileReadTool(BaseTool):
     def _extract_text_from_pdf(self, file_path: str) -> str:
         """Extract text from PDF file."""
         try:
-            logger.info(f"Extraindo texto do PDF: {file_path}")
+            print(f"FileReadTool: Extraindo texto do PDF: {file_path}")
             text = ""
             
             with open(file_path, "rb") as file:
@@ -121,82 +154,77 @@ class FileReadTool(BaseTool):
                 try:
                     pdf_reader = PyPDF2.PdfReader(file)
                     num_pages = len(pdf_reader.pages)
-                    logger.info(f"PDF tem {num_pages} páginas")
+                    print(f"FileReadTool: PDF tem {num_pages} páginas")
                     
                     # Processa apenas as primeiras 20 páginas
                     max_pages = min(20, num_pages)
-                    logger.info(f"Processando {max_pages} páginas do PDF")
+                    print(f"FileReadTool: Processando {max_pages} páginas do PDF")
                     
                     for page_num in range(max_pages):
                         try:
                             page = pdf_reader.pages[page_num]
                             page_text = page.extract_text()
                             if page_text:
-                                # Limpa o texto
-                                page_text = page_text.replace('\x00', '')
-                                page_text = re.sub(r'\s+', ' ', page_text)
-                                page_text = page_text.strip()
+                                # Limpa o texto da página
+                                page_text = clean_text(page_text)
                                 
-                                # Adiciona apenas se houver conteúdo
+                                # Adiciona apenas se houver conteúdo significativo
                                 if len(page_text) > 50:
                                     text += f"\n\n=== Página {page_num + 1} ===\n\n{page_text}"
-                                    logger.debug(f"Texto extraído da página {page_num + 1}: {page_text[:100]}")
+                                    print(f"FileReadTool: Texto extraído da página {page_num + 1}: {len(page_text)} caracteres")
                                 else:
-                                    logger.warning(f"Página {page_num + 1} ignorada por ter pouco conteúdo")
+                                    print(f"FileReadTool: Página {page_num + 1} ignorada por ter pouco conteúdo")
                             else:
-                                logger.warning(f"Nenhum texto extraído da página {page_num + 1}")
+                                print(f"FileReadTool: Nenhum texto extraído da página {page_num + 1}")
                         except Exception as e:
-                            logger.error(f"Erro ao extrair texto da página {page_num + 1}: {str(e)}")
+                            print(f"FileReadTool: Erro ao extrair texto da página {page_num + 1}: {str(e)}")
                             continue
                 except Exception as e:
-                    logger.error(f"Erro ao ler PDF com PyPDF2: {str(e)}")
+                    print(f"FileReadTool: Erro ao ler PDF com PyPDF2: {str(e)}")
                     # Se falhar com PyPDF2, tenta com pypdf
                     try:
                         file.seek(0)
                         pdf_reader = pypdf.PdfReader(file)
                         num_pages = len(pdf_reader.pages)
-                        logger.info(f"PDF tem {num_pages} páginas (usando pypdf)")
+                        print(f"FileReadTool: PDF tem {num_pages} páginas (usando pypdf)")
                         
                         max_pages = min(20, num_pages)
-                        logger.info(f"Processando {max_pages} páginas do PDF")
+                        print(f"FileReadTool: Processando {max_pages} páginas do PDF")
                         
                         for page_num in range(max_pages):
                             try:
                                 page = pdf_reader.pages[page_num]
                                 page_text = page.extract_text()
                                 if page_text:
-                                    page_text = page_text.replace('\x00', '')
-                                    page_text = re.sub(r'\s+', ' ', page_text)
-                                    page_text = page_text.strip()
+                                    # Limpa o texto da página
+                                    page_text = clean_text(page_text)
                                     
                                     if len(page_text) > 50:
                                         text += f"\n\n=== Página {page_num + 1} ===\n\n{page_text}"
-                                        logger.debug(f"Texto extraído da página {page_num + 1}: {page_text[:100]}")
+                                        print(f"FileReadTool: Texto extraído da página {page_num + 1}: {len(page_text)} caracteres")
                                     else:
-                                        logger.warning(f"Página {page_num + 1} ignorada por ter pouco conteúdo")
+                                        print(f"FileReadTool: Página {page_num + 1} ignorada por ter pouco conteúdo")
                                 else:
-                                    logger.warning(f"Nenhum texto extraído da página {page_num + 1}")
+                                    print(f"FileReadTool: Nenhum texto extraído da página {page_num + 1}")
                             except Exception as e:
-                                logger.error(f"Erro ao extrair texto da página {page_num + 1}: {str(e)}")
+                                print(f"FileReadTool: Erro ao extrair texto da página {page_num + 1}: {str(e)}")
                                 continue
                     except Exception as e:
-                        logger.error(f"Erro ao ler PDF com pypdf: {str(e)}")
+                        print(f"FileReadTool: Erro ao ler PDF com pypdf: {str(e)}")
                         raise
             
             if not text.strip():
-                logger.error("Nenhum texto extraído do PDF")
+                print("FileReadTool: Nenhum texto extraído do PDF")
                 return "Error: No text extracted from PDF"
             
             # Limpa o texto final
-            text = text.replace('\x00', '')
-            text = re.sub(r'\s+', ' ', text)
-            text = text.strip()
+            text = clean_text(text)
             
-            logger.info(f"Texto extraído com sucesso do PDF. Tamanho: {len(text)} caracteres")
+            print(f"FileReadTool: Texto extraído com sucesso do PDF. Tamanho: {len(text)} caracteres")
             return text
             
         except Exception as e:
-            logger.error(f"Erro ao extrair texto do PDF: {str(e)}")
+            print(f"FileReadTool: Erro ao extrair texto do PDF: {str(e)}")
             return f"Error: Failed to extract text from PDF: {str(e)}"
 
     def _extract_text_from_docx(self, file_path: str) -> str:
