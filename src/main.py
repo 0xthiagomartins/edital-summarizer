@@ -1,19 +1,13 @@
 import os
 import sys
 import json
-import logging
-from pathlib import Path
 from typing import Optional
 from dotenv import load_dotenv
 from flow.edital_flow import kickoff
-from utils import parse_args
+from utils import parse_args, get_logger
 
-# Configuração de logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(levelname)s: %(message)s'  # Formato mais conciso
-)
-logger = logging.getLogger(__name__)
+
+logger = get_logger(__name__)
 
 def setup_environment():
     """Configura o ambiente."""

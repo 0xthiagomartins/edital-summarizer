@@ -1,39 +1,47 @@
 from typing import Dict, Any, Optional, List, Callable
 from crewai import Flow, LLM
-from crewai.flow.flow import start, listen
+from crewai.flow.flow import start, listen, or_
 from utils import read_metadata
 from tools.file_tools import FileReadTool, DocumentTooLargeError
 from pydantic import BaseModel, Field
-import logging
 import json
 import functools
+from utils import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
+
 
 def handle_flow_error(func: Callable) -> Callable:
     """Decorator para tratar erros no flow de forma consistente."""
     @functools.wraps(func)
     def wrapper(self, *args, **kwargs):
+        print(f"\n{'='*50}\nExecutando {func.__name__}")
+        print(f"Estado atual - has_error: {self.state.has_error}, error_message: {self.state.error_message}")
+        
         # Se já houve erro, apenas retorna
         if self.state.has_error:
+            print(f"IGNORADO: {func.__name__} - Erro anterior: {self.state.error_message}")
             return
 
         try:
-            return func(self, *args, **kwargs)
+            result = func(self, *args, **kwargs)
+            print(f"✅ {func.__name__} executado com sucesso")
+            return result
         except DocumentTooLargeError as e:
-            logger.error(f"Erro em {func.__name__}: {str(e)}")
+            print(f"❌ {func.__name__} - DocumentTooLargeError: {str(e)}")
             self.state.has_error = True
             self.state.error_message = str(e)
             self.state.justification = e.error_message
             self.state.target_match = False
             self.state.threshold_match = "inconclusive"
             self.state.is_relevant = False
-            raise
+            return self.state
         except Exception as e:
-            logger.error(f"Erro em {func.__name__}: {str(e)}")
+            print(f"❌ {func.__name__} - Exception: {str(e)}")
             self.state.has_error = True
             self.state.error_message = f"Erro em {func.__name__}: {str(e)}"
             self.state.justification = self.state.error_message
+            return self.state
     return wrapper
 
 class TargetAnalysis(BaseModel):
@@ -160,11 +168,33 @@ class EditalAnalysisFlow(Flow[EditalState]):
     @handle_flow_error
     def extract_content(self):
         """Extrai conteúdo do edital."""
-        logger.info("Iniciando extração de conteúdo...")
-        # Usa o FileReadTool para ler o arquivo
-        content = self.file_tool._run(f"{self.state.edital_path_dir}/edital_1.pdf")
-        self.state.content = content
-        logger.info("Conteúdo extraído com sucesso")
+        print("Iniciando extração de conteúdo...")
+        try:
+            # Usa o FileReadTool para ler o arquivo
+            content = self.file_tool._run(f"{self.state.edital_path_dir}/edital_1.pdf")
+            self.state.content = content
+            print("Conteúdo extraído com sucesso")
+        except DocumentTooLargeError as e:
+            print(f"❌ Erro: Documento muito grande - {str(e)}")
+            self.state.has_error = True
+            self.state.error_message = str(e)
+            self.state.justification = e.error_message
+            self.state.target_match = False
+            self.state.threshold_match = "inconclusive"
+            self.state.is_relevant = False
+            return self.state
+        except FileNotFoundError as e:
+            print(f"❌ Erro: Arquivo não encontrado - {str(e)}")
+            self.state.has_error = True
+            self.state.error_message = str(e)
+            self.state.justification = f"Erro ao processar edital: {str(e)}"
+            return self.state
+        except Exception as e:
+            print(f"❌ Erro ao extrair conteúdo: {str(e)}")
+            self.state.has_error = True
+            self.state.error_message = f"Erro ao extrair conteúdo: {str(e)}"
+            self.state.justification = self.state.error_message
+            return self.state
 
     @listen(extract_content)
     @handle_flow_error
@@ -430,6 +460,8 @@ class EditalAnalysisFlow(Flow[EditalState]):
     def generate_justification(self):
         """Gera justificativa para a decisão."""
         logger.info("Iniciando geração de justificativa...")
+        logger.warning(f"Estado atual - has_error: {self.state.has_error}, error_message: {self.state.error_message}")
+        
         # Inicializa o LLM
         llm = LLM(
             model="gpt-4o",

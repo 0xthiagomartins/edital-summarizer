@@ -6,12 +6,12 @@ import shutil
 from typing import Type, Optional
 from pydantic import BaseModel, Field
 from crewai.tools import BaseTool
-import logging
 import PyPDF2
 import re
 import docx
+from utils import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 class DocumentTooLargeError(Exception):
     """Exceção lançada quando o documento excede o limite de caracteres."""
@@ -43,33 +43,48 @@ class FileReadTool(BaseTool):
     def _run(self, file_path: str, max_chars: int = 30000) -> str:
         """Read file content and return it as text."""
         try:
-            logger.info(f"Tentando ler arquivo: {file_path}")
+            print(f"\n{'='*50}")
+            print(f"FileReadTool: Iniciando leitura do arquivo: {file_path}")
+            print(f"FileReadTool: Limite de caracteres: {max_chars}")
             
             # Valida caminho
             if not os.path.exists(file_path):
-                logger.error(f"Arquivo não encontrado: {file_path}")
-                return f"Error: File not found at {file_path}"
+                print(f"❌ FileReadTool: Arquivo não encontrado: {file_path}")
+                raise FileNotFoundError(f"Arquivo não encontrado: {file_path}")
+
+            print(f"✅ FileReadTool: Arquivo encontrado")
 
             # Determina tipo de arquivo
             _, file_extension = os.path.splitext(file_path)
             file_extension = file_extension.lower()
+            print(f"FileReadTool: Tipo de arquivo: {file_extension}")
 
             # Extrai texto baseado no tipo
             try:
                 if file_extension == ".pdf":
+                    print("FileReadTool: Extraindo texto do PDF...")
                     text = self._extract_text_from_pdf(file_path)
                 elif file_extension in [".docx", ".doc"]:
+                    print("FileReadTool: Extraindo texto do DOCX...")
                     text = self._extract_text_from_docx(file_path)
                 elif file_extension in [".md", ".markdown"]:
+                    print("FileReadTool: Extraindo texto do Markdown...")
                     text = self._extract_text_from_markdown(file_path)
                 elif file_extension == ".zip":
+                    print("FileReadTool: Extraindo texto do ZIP...")
                     text = self._extract_text_from_zip(file_path, max_chars)
                 else:  # Assume it's a text file
+                    print("FileReadTool: Lendo arquivo de texto...")
                     with open(file_path, "r", encoding="utf-8", errors="replace") as file:
                         text = file.read()
 
+                print(f"FileReadTool: Texto extraído. Tamanho: {len(text)} caracteres")
+
                 # Verifica limite de caracteres
                 if len(text) > max_chars:
+                    print(f"❌ FileReadTool: Documento excede limite de caracteres")
+                    print(f"FileReadTool: Tamanho atual: {len(text)}")
+                    print(f"FileReadTool: Limite: {max_chars}")
                     error_msg = (
                         f"Não foi possível processar a análise por completo pois o documento é muito grande "
                         f"(tamanho atual: {len(text)} caracteres, limite: {max_chars} caracteres). "
@@ -77,19 +92,23 @@ class FileReadTool(BaseTool):
                     )
                     raise DocumentTooLargeError(max_chars, len(text))
 
-                logger.info(f"Arquivo lido com sucesso: {file_path}")
+                print(f"✅ FileReadTool: Arquivo processado com sucesso")
+                print(f"{'='*50}\n")
                 return text
                 
             except DocumentTooLargeError as e:
-                logger.error(f"Documento muito grande: {str(e)}")
+                print(f"❌ FileReadTool: Erro - Documento muito grande")
+                print(f"FileReadTool: {str(e)}")
                 raise
             except Exception as e:
-                logger.error(f"Erro ao ler arquivo {file_path}: {str(e)}")
-                return f"Error reading file: {str(e)}"
+                print(f"❌ FileReadTool: Erro ao ler arquivo")
+                print(f"FileReadTool: {str(e)}")
+                raise Exception(f"Erro ao ler arquivo: {str(e)}")
                 
         except Exception as e:
-            logger.error(f"Erro ao processar arquivo {file_path}: {str(e)}")
-            return f"Error processing file: {str(e)}"
+            print(f"❌ FileReadTool: Erro ao processar arquivo")
+            print(f"FileReadTool: {str(e)}")
+            raise Exception(f"Erro ao processar arquivo: {str(e)}")
 
     def _extract_text_from_pdf(self, file_path: str) -> str:
         """Extract text from PDF file."""
