@@ -3,12 +3,14 @@ import pypdf
 import zipfile
 import tempfile
 import shutil
-from typing import Type, Optional
+from typing import Type, Optional, List, Dict
 from pydantic import BaseModel, Field
 from crewai.tools import BaseTool
 import PyPDF2
 import re
 import docx
+import json
+import csv
 from utils import get_logger
 
 logger = get_logger(__name__)
@@ -53,7 +55,7 @@ class DocumentTooLargeError(Exception):
 
 class FileReadToolInput(BaseModel):
     """Input schema for FileReadTool."""
-    file_path: str = Field(..., description="Path to the file to be read.")
+    edital_path_dir: str = Field(..., description="Path to the edital directory containing the files to be read.")
     max_chars: int = Field(100000, description="Maximum number of characters to return.")
 
 class FileReadTool(BaseTool):
@@ -61,87 +63,162 @@ class FileReadTool(BaseTool):
     
     name: str = "File Reader"
     description: str = (
-        "Reads the content of a file and returns it as text. "
-        "Supports TXT, PDF, DOCX, MD files and ZIP archives."
+        "Reads the content of all files in an edital directory and returns it as text. "
+        "Supports TXT, PDF, DOCX, MD, CSV, JSON files and ZIP archives."
     )
     args_schema: Type[BaseModel] = FileReadToolInput
 
-    def _run(self, file_path: str, max_chars: int = 100000) -> str:
-        """Read file content and return it as text."""
+    def _run(self, edital_path_dir: str, max_chars: int = 100000) -> str:
+        """Read all files in the edital directory and return their content as text."""
         try:
             print(f"\n{'='*50}")
-            print(f"FileReadTool: Iniciando leitura do arquivo: {file_path}")
+            print(f"FileReadTool: Iniciando leitura exploratória do diretório: {edital_path_dir}")
             print(f"FileReadTool: Limite de caracteres: {max_chars}")
             
             # Valida caminho
-            if not os.path.exists(file_path):
-                print(f"❌ FileReadTool: Arquivo não encontrado: {file_path}")
-                raise FileNotFoundError(f"Arquivo não encontrado: {file_path}")
+            if not os.path.exists(edital_path_dir):
+                print(f"❌ FileReadTool: Diretório não encontrado: {edital_path_dir}")
+                raise FileNotFoundError(f"Diretório não encontrado: {edital_path_dir}")
 
-            print(f"✅ FileReadTool: Arquivo encontrado")
+            print(f"✅ FileReadTool: Diretório encontrado")
 
-            # Determina tipo de arquivo
-            _, file_extension = os.path.splitext(file_path)
-            file_extension = file_extension.lower()
-            print(f"FileReadTool: Tipo de arquivo: {file_extension}")
+            # Lista todos os arquivos no diretório
+            all_files = []
+            for root, _, files in os.walk(edital_path_dir):
+                for file in files:
+                    if file.lower() != "metadata.json":  # Ignora metadata.json
+                        file_path = os.path.join(root, file)
+                        all_files.append(file_path)
 
-            # Extrai texto baseado no tipo
-            try:
-                if file_extension == ".pdf":
-                    print("FileReadTool: Extraindo texto do PDF...")
-                    text = self._extract_text_from_pdf(file_path)
-                elif file_extension in [".docx", ".doc"]:
-                    print("FileReadTool: Extraindo texto do DOCX...")
-                    text = self._extract_text_from_docx(file_path)
-                elif file_extension in [".md", ".markdown"]:
-                    print("FileReadTool: Extraindo texto do Markdown...")
-                    text = self._extract_text_from_markdown(file_path)
-                elif file_extension == ".zip":
-                    print("FileReadTool: Extraindo texto do ZIP...")
-                    text = self._extract_text_from_zip(file_path, max_chars)
-                else:  # Assume it's a text file
-                    print("FileReadTool: Lendo arquivo de texto...")
-                    with open(file_path, "r", encoding="utf-8", errors="replace") as file:
-                        text = file.read()
+            print(f"FileReadTool: Encontrados {len(all_files)} arquivos para processar")
 
-                # Limpa e otimiza o texto
-                print("FileReadTool: Limpando e otimizando texto...")
-                original_size = len(text)
-                text = clean_text(text)
-                cleaned_size = len(text)
-                print(f"FileReadTool: Tamanho original: {original_size} caracteres")
-                print(f"FileReadTool: Tamanho após limpeza: {cleaned_size} caracteres")
-                print(f"FileReadTool: Redução: {original_size - cleaned_size} caracteres ({(original_size - cleaned_size)/original_size*100:.1f}%)")
+            # Processa cada arquivo
+            full_text = ""
+            for file_path in all_files:
+                try:
+                    print(f"\nFileReadTool: Processando arquivo: {file_path}")
+                    
+                    # Extrai texto baseado no tipo de arquivo
+                    file_text = self._extract_text_from_file(file_path)
+                    
+                    if file_text and not file_text.startswith("Error:"):
+                        # Adiciona cabeçalho com informações do arquivo
+                        file_name = os.path.basename(file_path)
+                        file_header = f"\n\n=== {file_name} ===\n\n"
+                        
+                        full_text += file_header + file_text
+                        print(f"✅ FileReadTool: Arquivo processado com sucesso")
+                    else:
+                        print(f"❌ FileReadTool: Erro ao processar arquivo: {file_text}")
+                        
+                except Exception as e:
+                    print(f"❌ FileReadTool: Erro ao processar arquivo {file_path}: {str(e)}")
+                    continue
 
-                # Verifica limite de caracteres
-                if len(text) > max_chars:
-                    print(f"❌ FileReadTool: Documento excede limite de caracteres")
-                    print(f"FileReadTool: Tamanho atual: {len(text)}")
-                    print(f"FileReadTool: Limite: {max_chars}")
-                    error_msg = (
-                        f"Não foi possível processar a análise por completo pois o documento é muito grande "
-                        f"(tamanho atual: {len(text)} caracteres, limite: {max_chars} caracteres). "
-                        f"Por segurança, o edital foi marcado como não relevante."
-                    )
-                    raise DocumentTooLargeError(max_chars, len(text))
+            if not full_text.strip():
+                print("❌ FileReadTool: Nenhum texto extraído dos arquivos")
+                return "Error: No text extracted from files"
 
-                print(f"✅ FileReadTool: Arquivo processado com sucesso")
-                print(f"{'='*50}\n")
-                return text
-                
-            except DocumentTooLargeError as e:
-                print(f"❌ FileReadTool: Erro - Documento muito grande")
-                print(f"FileReadTool: {str(e)}")
-                raise
-            except Exception as e:
-                print(f"❌ FileReadTool: Erro ao ler arquivo")
-                print(f"FileReadTool: {str(e)}")
-                raise Exception(f"Erro ao ler arquivo: {str(e)}")
+            # Limpa e otimiza o texto
+            print("FileReadTool: Limpando e otimizando texto...")
+            original_size = len(full_text)
+            full_text = clean_text(full_text)
+            cleaned_size = len(full_text)
+            print(f"FileReadTool: Tamanho original: {original_size} caracteres")
+            print(f"FileReadTool: Tamanho após limpeza: {cleaned_size} caracteres")
+            print(f"FileReadTool: Redução: {original_size - cleaned_size} caracteres ({(original_size - cleaned_size)/original_size*100:.1f}%)")
+
+            # Verifica limite de caracteres
+            if len(full_text) > max_chars:
+                print(f"❌ FileReadTool: Documento excede limite de caracteres")
+                print(f"FileReadTool: Tamanho atual: {len(full_text)}")
+                print(f"FileReadTool: Limite: {max_chars}")
+                error_msg = (
+                    f"Não foi possível processar a análise por completo pois o documento é muito grande "
+                    f"(tamanho atual: {len(full_text)} caracteres, limite: {max_chars} caracteres). "
+                    f"Por segurança, o edital foi marcado como não relevante."
+                )
+                raise DocumentTooLargeError(max_chars, len(full_text))
+
+            print(f"✅ FileReadTool: Processamento concluído com sucesso")
+            print(f"{'='*50}\n")
+            return full_text
                 
         except Exception as e:
-            print(f"❌ FileReadTool: Erro ao processar arquivo")
+            print(f"❌ FileReadTool: Erro ao processar diretório")
             print(f"FileReadTool: {str(e)}")
-            raise Exception(f"Erro ao processar arquivo: {str(e)}")
+            raise Exception(f"Erro ao processar diretório: {str(e)}")
+
+    def _extract_text_from_file(self, file_path: str) -> str:
+        """Extract text from a file based on its extension."""
+        try:
+            _, file_extension = os.path.splitext(file_path)
+            file_extension = file_extension.lower()
+
+            if file_extension == ".pdf":
+                return self._extract_text_from_pdf(file_path)
+            elif file_extension in [".docx", ".doc"]:
+                return self._extract_text_from_docx(file_path)
+            elif file_extension in [".md", ".markdown"]:
+                return self._extract_text_from_markdown(file_path)
+            elif file_extension == ".zip":
+                return self._extract_text_from_zip(file_path)
+            elif file_extension == ".csv":
+                return self._extract_text_from_csv(file_path)
+            elif file_extension == ".json":
+                return self._extract_text_from_json(file_path)
+            else:  # Assume it's a text file
+                with open(file_path, "r", encoding="utf-8", errors="replace") as file:
+                    return file.read()
+
+        except Exception as e:
+            return f"Error: Failed to extract text from file: {str(e)}"
+
+    def _extract_text_from_csv(self, file_path: str) -> str:
+        """Extract text from CSV file."""
+        try:
+            print(f"FileReadTool: Extraindo texto do CSV: {file_path}")
+            text = []
+            
+            with open(file_path, "r", encoding="utf-8", errors="replace") as file:
+                csv_reader = csv.reader(file)
+                for row in csv_reader:
+                    if any(cell.strip() for cell in row):  # Ignora linhas vazias
+                        text.append(" | ".join(cell.strip() for cell in row))
+            
+            if not text:
+                print("FileReadTool: Nenhum texto extraído do CSV")
+                return "Error: No text extracted from CSV"
+            
+            result = "\n".join(text)
+            print(f"FileReadTool: Texto extraído com sucesso do CSV. Tamanho: {len(result)} caracteres")
+            return result
+            
+        except Exception as e:
+            print(f"FileReadTool: Erro ao extrair texto do CSV: {str(e)}")
+            return f"Error: Failed to extract text from CSV: {str(e)}"
+
+    def _extract_text_from_json(self, file_path: str) -> str:
+        """Extract text from JSON file."""
+        try:
+            print(f"FileReadTool: Extraindo texto do JSON: {file_path}")
+            
+            with open(file_path, "r", encoding="utf-8", errors="replace") as file:
+                data = json.load(file)
+            
+            # Converte o JSON em texto formatado
+            text = json.dumps(data, ensure_ascii=False, indent=2)
+            
+            if not text.strip():
+                print("FileReadTool: Nenhum texto extraído do JSON")
+                return "Error: No text extracted from JSON"
+            
+            print(f"FileReadTool: Texto extraído com sucesso do JSON. Tamanho: {len(text)} caracteres")
+            return text
+            
+        except Exception as e:
+            print(f"FileReadTool: Erro ao extrair texto do JSON: {str(e)}")
+            return f"Error: Failed to extract text from JSON: {str(e)}"
 
     def _extract_text_from_pdf(self, file_path: str) -> str:
         """Extract text from PDF file."""

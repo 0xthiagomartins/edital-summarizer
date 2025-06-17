@@ -76,8 +76,8 @@ class EditalAnalysisFlow(Flow[EditalState]):
     def extract_content(self):
         """Extrai conteúdo do edital."""
         try:
-            # Usa o FileReadTool para ler o arquivo
-            content = self.file_tool._run(f"{self.state.edital_path_dir}/edital_1.pdf")
+            # Usa o FileReadTool para ler todos os arquivos do diretório
+            content = self.file_tool._run(self.state.edital_path_dir)
             self.state.content = content
         except DocumentTooLargeError as e:
             self.state.has_error = True
@@ -381,8 +381,8 @@ class EditalAnalysisFlow(Flow[EditalState]):
         
 def kickoff(edital_path_dir: str, target: str, threshold: int = 0, force_match: bool = False) -> EditalState:
     """Executa o fluxo de análise de edital."""
+    
     flow = EditalAnalysisFlow(target=target, threshold=threshold, force_match=force_match)
-    # Executa o flow
     flow.kickoff({"edital_path_dir": edital_path_dir})
     logger.info("=== Flow Concluído ===")
     return flow.state
