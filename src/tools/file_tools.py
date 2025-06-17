@@ -18,7 +18,12 @@ class DocumentTooLargeError(Exception):
     def __init__(self, max_chars: int, actual_chars: int):
         self.max_chars = max_chars
         self.actual_chars = actual_chars
-        super().__init__(f"Documento excede o limite de {max_chars} caracteres (tamanho atual: {actual_chars})")
+        self.error_message = (
+            f"Não foi possível processar a análise por completo pois o documento é muito grande "
+            f"(tamanho atual: {actual_chars} caracteres, limite: {max_chars} caracteres). "
+            f"Por segurança, o edital foi marcado como não relevante."
+        )
+        super().__init__(self.error_message)
 
 class FileReadToolInput(BaseModel):
     """Input schema for FileReadTool."""
@@ -65,6 +70,11 @@ class FileReadTool(BaseTool):
 
                 # Verifica limite de caracteres
                 if len(text) > max_chars:
+                    error_msg = (
+                        f"Não foi possível processar a análise por completo pois o documento é muito grande "
+                        f"(tamanho atual: {len(text)} caracteres, limite: {max_chars} caracteres). "
+                        f"Por segurança, o edital foi marcado como não relevante."
+                    )
                     raise DocumentTooLargeError(max_chars, len(text))
 
                 logger.info(f"Arquivo lido com sucesso: {file_path}")
