@@ -39,6 +39,7 @@ def run(
         output = {
             "bid_number": result.bid_number,
             "city": result.city,
+            "opening_date": result.opening_date,
             "phone": result.metadata.get("phone", ""),
             "website": result.metadata.get("website", ""),
             "email": result.metadata.get("email", ""),
@@ -53,7 +54,8 @@ def run(
             "target_match": result.target_match,
             "threshold_match": result.threshold_match,
             "is_relevant": result.is_relevant,
-            "summary": result.summary,
+            "executive_summary": result.executive_summary,
+            "technical_summary": result.technical_summary,
             "justification": result.justification
         }
         
@@ -67,6 +69,7 @@ def run(
         logger.info("\n=== Resumo do Processamento ===")
         logger.info(f"Número do Edital: {result.bid_number}")
         logger.info(f"Cidade/UF: {result.city}")
+        logger.info(f"Data de Abertura: {result.opening_date if result.opening_date else 'Não informada'}")
         logger.info(f"Título: {result.metadata.get('title', 'Não informado')}")
         logger.info(f"Objeto: {result.metadata.get('object', 'Não informado')}")
         logger.info(f"Quantidades: {result.metadata.get('quantities', 'Não informado')}")
@@ -81,7 +84,10 @@ def run(
         logger.info(f"  - Match com Target: {'Sim' if result.target_match else 'Não'}")
         logger.info(f"  - Match com Threshold: {result.threshold_match}")
         logger.info(f"  - Edital Relevante: {'Sim' if result.is_relevant else 'Não'}")
-        logger.info(f"\nResumo: {result.summary}")
+        logger.info(f"\n=== RESUMO EXECUTIVO ===")
+        logger.info(f"{result.executive_summary}")
+        logger.info(f"\n=== RESUMO TÉCNICO ===")
+        logger.info(f"{result.technical_summary}")
         logger.info(f"\nJustificativa: {result.justification}")
         
         return result

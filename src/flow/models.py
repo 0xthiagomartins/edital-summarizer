@@ -27,8 +27,10 @@ class QuantitiesAnalysis(BaseModel):
 
 class SummaryAnalysis(BaseModel):
     """Resumo do edital."""
-    summary: str = Field(description="Resumo textual do edital, incluindo informações relevantes encontradas")
+    executive_summary: str = Field(description="Resumo executivo comercial, conciso e direto, focado em informações comerciais essenciais")
+    technical_summary: str = Field(description="Resumo técnico detalhado com especificações, prazos e condições técnicas")
     city: str = Field(description="Cidade/UF do edital (ou 'Não foi possível determinar' se não encontrado)")
+    opening_date: str = Field(default="", description="Data de abertura no formato DD/MM/YYYY (apenas data, sem hora)")
     phone: str = Field(default="", description="Telefone de contato (ou string vazia se não encontrado)")
     website: str = Field(default="", description="Website (ou string vazia se não encontrado)")
     email: str = Field(default="", description="Email de contato (ou string vazia se não encontrado)")
@@ -68,6 +70,7 @@ class EditalState(BaseModel):
     # Informações básicas
     bid_number: str = ""
     city: str = ""
+    opening_date: str = ""  # Data de abertura no formato DD/MM/YYYY
     edital_path_dir: str = ""  # Adiciona o caminho do edital ao state
     
     # Metadata e conteúdo
@@ -81,7 +84,8 @@ class EditalState(BaseModel):
     is_relevant: bool = False
     
     # Saídas
-    summary: str = ""
+    executive_summary: str = ""
+    technical_summary: str = ""
     justification: str = ""
 
     # Controle de erro

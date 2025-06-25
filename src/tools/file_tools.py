@@ -3,7 +3,7 @@ import pypdf
 import zipfile
 import tempfile
 import shutil
-from typing import Type, Optional, List, Dict
+from typing import Type
 from pydantic import BaseModel, Field
 from crewai.tools import BaseTool
 import PyPDF2
@@ -205,6 +205,17 @@ class FileReadTool(BaseTool):
             
             with open(file_path, "r", encoding="utf-8", errors="replace") as file:
                 data = json.load(file)
+            
+            # Remove campos específicos se for metadata.json
+            file_name = os.path.basename(file_path).lower()
+            if file_name == "metadata.json":
+                # Remove campos que não devem ser incluídos na análise
+                if "threshold" in data:
+                    del data["threshold"]
+                    print(f"FileReadTool: Campo 'threshold' removido do metadata.json")
+                if "target" in data:
+                    del data["target"]
+                    print(f"FileReadTool: Campo 'target' removido do metadata.json")
             
             # Converte o JSON em texto formatado
             text = json.dumps(data, ensure_ascii=False, indent=2)

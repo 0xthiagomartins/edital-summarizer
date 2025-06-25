@@ -102,11 +102,11 @@ class EditalAnalysisFlow(Flow[EditalState]):
     @listen(extract_content)
     @handle_flow_error
     def generate_summary(self):
-        """Gera resumo do edital."""
+        """Gera resumo executivo e técnico do edital."""
         llm = LLM(
             model="gpt-4o",
             temperature=0.7,
-            max_tokens=1000,
+            max_tokens=2500,
             top_p=0.9,
             frequency_penalty=0.1,
             presence_penalty=0.1,
@@ -117,27 +117,52 @@ class EditalAnalysisFlow(Flow[EditalState]):
         response = llm.call(
             messages=[
                 {"role": "system", "content": """Você é um especialista em resumir editais de licitação.
-                Sua tarefa é gerar um resumo detalhado e estruturado do edital.
+                Sua tarefa é gerar DOIS tipos de resumo: executivo e técnico, ambos em formato Markdown e em PORTUGUÊS.
                 
-                Instruções:
-                1. Analise cuidadosamente todo o conteúdo
-                2. Extraia TODAS as informações relevantes:
-                   - Objeto da licitação
-                   - Quantidades e especificações
-                   - Prazos e valores
-                   - Requisitos técnicos
-                   - Condições comerciais
-                3. Seja detalhado mas conciso
-                4. Organize as informações em seções claras
-                5. Máximo 1500 palavras
+                RESUMO EXECUTIVO (executive_summary):
+                - Foco comercial e direto
+                - Máximo 150 palavras
+                - Formato Markdown limpo e profissional
+                - Incluir APENAS:
+                  * Cidade/UF
+                  * Valor total estimado (se disponível)
+                  * Data de abertura (com data e hora)
+                  * Quantidades principais (resumidas)
+                  * Contatos essenciais
+                - NÃO incluir especificações técnicas ou detalhes operacionais
+                - Linguagem comercial e acessível
+                
+                RESUMO TÉCNICO (technical_summary):
+                - Detalhado e completo
+                - Máximo 1500 palavras
+                - Formato Markdown estruturado e profissional
+                - Incluir:
+                  * Informações gerais completas
+                  * Especificações técnicas detalhadas
+                  * Quantidades e valores
+                  * Prazos e condições
+                  * Requisitos técnicos
+                  * Condições comerciais
+                  * Contatos completos
+                - Usar títulos em português
+                - Manter consistência na formatação
+                
+                REGRAS GERAIS:
+                - SEMPRE em português
+                - Formatação Markdown consistente
+                - Títulos com # e ##
+                - Listas com - e **negrito** para destaque
+                - Informações organizadas em seções claras
+                - Linguagem profissional mas acessível
                 
                 IMPORTANTE: Identifique também:
                 1. A cidade/UF do edital (procure no metadata ou no texto)
-                2. Informações de contato:
+                2. A data de abertura (opening_date) no formato DD/MM/YYYY (apenas a data, sem hora)
+                3. Informações de contato:
                    - phone: telefone de contato
                    - website: site oficial
                    - email: email de contato
-                3. Outras informações (em formato texto):
+                4. Outras informações (em formato texto):
                    - title: título do edital
                    - object: objeto da licitação
                    - quantities: quantidades relevantes (ex: "100 unidades de tablets")
@@ -162,8 +187,10 @@ class EditalAnalysisFlow(Flow[EditalState]):
         cleaned_data = response_obj.clean_empty_fields()
         
         # Atualiza o state
-        self.state.summary = cleaned_data.get("summary", "")
+        self.state.executive_summary = cleaned_data.get("executive_summary", "")
+        self.state.technical_summary = cleaned_data.get("technical_summary", "")
         self.state.city = cleaned_data.get("city", "Não foi possível determinar")
+        self.state.opening_date = cleaned_data.get("opening_date", "")
         
         # Atualiza o metadata com as informações de contato e outras informações
         self.state.metadata.update({
@@ -205,8 +232,8 @@ class EditalAnalysisFlow(Flow[EditalState]):
                 {"role": "user", "content": f"""
                 Target: {self.target}
                 
-                Resumo do Edital:
-                {self.state.summary}
+                Resumo Técnico do Edital:
+                {self.state.technical_summary}
                 
                 Informações Adicionais:
                 - Objeto: {self.state.metadata.get('object', '')}
@@ -270,8 +297,8 @@ class EditalAnalysisFlow(Flow[EditalState]):
                 Target: {self.target}
                 Threshold: {self.threshold}
                 
-                Resumo do Edital:
-                {self.state.summary}
+                Resumo Técnico do Edital:
+                {self.state.technical_summary}
                 """}
             ]
         )
@@ -325,7 +352,7 @@ class EditalAnalysisFlow(Flow[EditalState]):
         llm = LLM(
             model="gpt-4o",
             temperature=0.7,
-            max_tokens=250,
+            max_tokens=200,
             top_p=0.9,
             frequency_penalty=0.1,
             presence_penalty=0.1
@@ -334,7 +361,7 @@ class EditalAnalysisFlow(Flow[EditalState]):
         response = llm.call(
             messages=[
                 {"role": "system", "content": """Você é um especialista em justificar decisões sobre editais.
-                Sua tarefa é gerar uma justificativa extremamente concisa e direta.
+                Sua tarefa é gerar uma justificativa concisa, direta e profissional.
                 
                 Lógica de Decisão:
                 1. Target Match (true/false):
@@ -352,22 +379,23 @@ class EditalAnalysisFlow(Flow[EditalState]):
                 
                 Instruções:
                 1. Seja direto e objetivo
-                2. Use no máximo 2 frases
-                3. Se não relevante:
+                2. Use linguagem profissional
+                3. Máximo 100 palavras
+                4. Se não relevante:
                    - Se target_match=false: Explique por que não encontrou o target
                    - Se threshold_match="false": Explique por que a quantidade é insuficiente
-                4. Se relevante:
+                5. Se relevante:
                    - Se threshold=0: Explique por que o target é relevante
                    - Se threshold>0: Explique por que a quantidade é suficiente
-                5. Máximo 50 palavras"""},
+                6. Use português claro e acessível"""},
                 {"role": "user", "content": f"""
                 Target: {self.target}
                 Target Match: {self.state.target_match}
                 Threshold Match: {self.state.threshold_match}
                 Threshold: {self.threshold}
                 
-                Resumo do Edital:
-                {self.state.summary}
+                Resumo Executivo do Edital:
+                {self.state.executive_summary}
                 """}
             ]
         )
