@@ -162,7 +162,7 @@ class FileReadTool(BaseTool):
             elif file_extension in [".md", ".markdown"]:
                 return self._extract_text_from_markdown(file_path)
             elif file_extension == ".zip":
-                return self._extract_text_from_zip(file_path)
+                return self._extract_text_from_zip(file_path, 50000)  # Limite específico para ZIP
             elif file_extension == ".csv":
                 return self._extract_text_from_csv(file_path)
             elif file_extension == ".json":
@@ -371,57 +371,81 @@ class FileReadTool(BaseTool):
     def _extract_text_from_zip(self, file_path: str, max_chars: int) -> str:
         """Extract text from ZIP file."""
         try:
-            logger.info(f"Extraindo texto do ZIP: {file_path}")
+            print(f"FileReadTool: Extraindo texto do ZIP: {file_path}")
             text = ""
             temp_dir = None
             
             try:
+                # Verifica se o arquivo ZIP existe
+                if not os.path.exists(file_path):
+                    print(f"FileReadTool: Arquivo ZIP não encontrado: {file_path}")
+                    return f"Error: ZIP file not found: {file_path}"
+                
+                # Verifica se é um arquivo ZIP válido
+                if not zipfile.is_zipfile(file_path):
+                    print(f"FileReadTool: Arquivo não é um ZIP válido: {file_path}")
+                    return f"Error: File is not a valid ZIP: {file_path}"
+                
                 # Cria diretório temporário
                 temp_dir = tempfile.mkdtemp()
-                logger.info(f"Diretório temporário criado: {temp_dir}")
+                print(f"FileReadTool: Diretório temporário criado: {temp_dir}")
                 
                 # Extrai arquivo ZIP
                 with zipfile.ZipFile(file_path, 'r') as zip_ref:
+                    # Lista arquivos no ZIP
+                    file_list = zip_ref.namelist()
+                    print(f"FileReadTool: Arquivos no ZIP: {file_list}")
+                    
                     zip_ref.extractall(temp_dir)
-                logger.info("Arquivo ZIP extraído com sucesso")
+                print("FileReadTool: Arquivo ZIP extraído com sucesso")
                 
                 # Processa arquivos extraídos
+                processed_files = 0
                 for root, _, files in os.walk(temp_dir):
                     for file in files:
-                        file_path = os.path.join(root, file)
-                        logger.info(f"Processando arquivo extraído: {file_path}")
+                        file_path_extracted = os.path.join(root, file)
+                        print(f"FileReadTool: Processando arquivo extraído: {file}")
                         
                         try:
-                            # Tenta extrair texto
-                            file_text = self._run(file_path)
+                            # Tenta extrair texto usando o método correto
+                            file_text = self._extract_text_from_file(file_path_extracted)
                             
-                            if not file_text.startswith("Error:"):
+                            if file_text and not file_text.startswith("Error:"):
                                 text += f"\n\n=== {file} ===\n\n{file_text}"
-                                logger.debug(f"Texto extraído do arquivo {file}: {file_text[:100]}")
+                                print(f"FileReadTool: Texto extraído do arquivo {file}: {len(file_text)} caracteres")
+                                processed_files += 1
                             else:
-                                logger.warning(f"Erro ao extrair texto do arquivo {file}: {file_text}")
+                                print(f"FileReadTool: Erro ao extrair texto do arquivo {file}: {file_text}")
                                 
                         except Exception as e:
-                            logger.error(f"Erro ao processar arquivo {file}: {str(e)}")
+                            print(f"FileReadTool: Erro ao processar arquivo {file}: {str(e)}")
                             continue
                 
+                print(f"FileReadTool: Total de arquivos processados: {processed_files}")
+                
                 if not text.strip():
-                    logger.error("Nenhum texto extraído do ZIP")
+                    print("FileReadTool: Nenhum texto extraído do ZIP")
                     return "Error: No text extracted from ZIP"
                 
                 # Limita tamanho do texto
                 if len(text) > max_chars:
                     text = text[:max_chars] + f"\n\n[Texto truncado em {max_chars} caracteres]"
                 
-                logger.info(f"Texto extraído com sucesso do ZIP. Tamanho: {len(text)} caracteres")
+                print(f"FileReadTool: Texto extraído com sucesso do ZIP. Tamanho: {len(text)} caracteres")
                 return text
                 
             finally:
                 # Limpa diretório temporário
                 if temp_dir and os.path.exists(temp_dir):
-                    shutil.rmtree(temp_dir)
-                    logger.info(f"Diretório temporário removido: {temp_dir}")
+                    try:
+                        shutil.rmtree(temp_dir)
+                        print(f"FileReadTool: Diretório temporário removido: {temp_dir}")
+                    except Exception as e:
+                        print(f"FileReadTool: Erro ao remover diretório temporário: {str(e)}")
             
+        except zipfile.BadZipFile as e:
+            print(f"FileReadTool: Arquivo ZIP corrompido: {str(e)}")
+            return f"Error: Corrupted ZIP file: {str(e)}"
         except Exception as e:
-            logger.error(f"Erro ao extrair texto do ZIP: {str(e)}")
+            print(f"FileReadTool: Erro ao extrair texto do ZIP: {str(e)}")
             return f"Error: Failed to extract text from ZIP: {str(e)}" 

@@ -123,9 +123,9 @@ class EditalAnalysisFlow(Flow[EditalState]):
                 - Foco comercial e direto
                 - Máximo 150 palavras
                 - Formato Markdown limpo e profissional
-                - Incluir APENAS:
+                - Incluir:
                   * Cidade/UF
-                  * Valor total estimado (se disponível)
+                  * Valor Monetário total estimado (se disponível)
                   * Data de abertura (com data e hora)
                   * Quantidades principais (resumidas)
                   * Contatos essenciais
