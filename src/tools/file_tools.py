@@ -53,6 +53,12 @@ class DocumentTooLargeError(Exception):
         )
         super().__init__(self.error_message)
 
+class InsufficientContentError(Exception):
+    """Exceção lançada quando não há conteúdo suficiente para análise."""
+    def __init__(self, error_message: str):
+        self.error_message = error_message
+        super().__init__(self.error_message)
+
 class FileReadToolInput(BaseModel):
     """Input schema for FileReadTool."""
     edital_path_dir: str = Field(..., description="Path to the edital directory containing the files to be read.")
@@ -84,16 +90,28 @@ class FileReadTool(BaseTool):
 
             # Lista todos os arquivos no diretório
             all_files = []
+            metadata_files = []
+            content_files = []
+            
             for root, _, files in os.walk(edital_path_dir):
                 for file in files:
-                    if file.lower() != "metadata.json":  # Ignora metadata.json
-                        file_path = os.path.join(root, file)
-                        all_files.append(file_path)
+                    file_path = os.path.join(root, file)
+                    if file.lower() == "metadata.json":
+                        metadata_files.append(file_path)
+                    else:
+                        content_files.append(file_path)
+                    all_files.append(file_path)
 
             print(f"FileReadTool: Encontrados {len(all_files)} arquivos para processar")
+            print(f"FileReadTool: - Metadata files: {len(metadata_files)}")
+            print(f"FileReadTool: - Content files: {len(content_files)}")
 
             # Processa cada arquivo
             full_text = ""
+            processed_files = 0
+            failed_files = []
+            successful_content_files = 0
+            
             for file_path in all_files:
                 try:
                     print(f"\nFileReadTool: Processando arquivo: {file_path}")
@@ -107,17 +125,51 @@ class FileReadTool(BaseTool):
                         file_header = f"\n\n=== {file_name} ===\n\n"
                         
                         full_text += file_header + file_text
+                        processed_files += 1
+                        
+                        # Conta arquivos de conteúdo processados com sucesso
+                        if file_name.lower() != "metadata.json":
+                            successful_content_files += 1
+                        
                         print(f"✅ FileReadTool: Arquivo processado com sucesso")
                     else:
+                        # Só conta como falha se não for metadata.json
+                        file_name = os.path.basename(file_path)
+                        if file_name.lower() != "metadata.json":
+                            failed_files.append(file_name)
                         print(f"❌ FileReadTool: Erro ao processar arquivo: {file_text}")
                         
                 except Exception as e:
+                    # Só conta como falha se não for metadata.json
+                    file_name = os.path.basename(file_path)
+                    if file_name.lower() != "metadata.json":
+                        failed_files.append(file_name)
                     print(f"❌ FileReadTool: Erro ao processar arquivo {file_path}: {str(e)}")
                     continue
 
+            print(f"\nFileReadTool: Resumo do processamento:")
+            print(f"FileReadTool: - Arquivos processados com sucesso: {processed_files}")
+            print(f"FileReadTool: - Arquivos de conteúdo processados com sucesso: {successful_content_files}")
+            print(f"FileReadTool: - Arquivos de conteúdo com erro: {len(failed_files)}")
+            if failed_files:
+                print(f"FileReadTool: - Arquivos de conteúdo com erro: {failed_files}")
+
+            # Verifica se há conteúdo suficiente para análise
             if not full_text.strip():
                 print("❌ FileReadTool: Nenhum texto extraído dos arquivos")
                 return "Error: No text extracted from files"
+            
+            # Verifica se há apenas metadata.json (sem conteúdo real)
+            if len(content_files) == 0:
+                error_msg = "Apenas metadata.json encontrado. Não há arquivos de conteúdo para análise."
+                print(f"❌ FileReadTool: {error_msg}")
+                raise InsufficientContentError(error_msg)
+            
+            # Verifica se todos os arquivos de conteúdo falharam
+            if successful_content_files == 0:
+                error_msg = f"Não foi possível extrair conteúdo de nenhum arquivo de conteúdo. Arquivos com erro: {', '.join(failed_files)}"
+                print(f"❌ FileReadTool: {error_msg}")
+                raise InsufficientContentError(error_msg)
 
             # Limpa e otimiza o texto
             print("FileReadTool: Limpando e otimizando texto...")
@@ -220,6 +272,12 @@ class FileReadTool(BaseTool):
             # Converte o JSON em texto formatado
             text = json.dumps(data, ensure_ascii=False, indent=2)
             
+            # Para metadata.json, retorna o conteúdo mesmo que esteja vazio
+            if file_name == "metadata.json":
+                print(f"FileReadTool: Metadata.json processado com sucesso. Tamanho: {len(text)} caracteres")
+                return text
+            
+            # Para outros arquivos JSON, verifica se há conteúdo
             if not text.strip():
                 print("FileReadTool: Nenhum texto extraído do JSON")
                 return "Error: No text extracted from JSON"

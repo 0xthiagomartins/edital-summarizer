@@ -2,7 +2,7 @@ from typing import Callable
 from crewai import Flow, LLM
 from crewai.flow.flow import start, listen
 from utils import read_metadata
-from tools.file_tools import FileReadTool, DocumentTooLargeError
+from tools.file_tools import FileReadTool, DocumentTooLargeError, InsufficientContentError
 from flow.models import TargetAnalysis, QuantitiesAnalysis, SummaryAnalysis, EditalState
 import json
 import functools
@@ -32,6 +32,15 @@ def handle_flow_error(func: Callable) -> Callable:
             self.state.has_error = True
             self.state.error_message = str(e)
             self.state.justification = e.error_message
+            self.state.target_match = False
+            self.state.threshold_match = "inconclusive"
+            self.state.is_relevant = False
+            return self.state
+        except InsufficientContentError as e:
+            print(f"❌ {func.__name__} - InsufficientContentError: {str(e)}")
+            self.state.has_error = True
+            self.state.error_message = str(e)
+            self.state.justification = f"Não foi possível analisar o edital: {e.error_message}. É necessário ter arquivos de conteúdo (PDF, DOCX, etc.) além do metadata.json para realizar a análise."
             self.state.target_match = False
             self.state.threshold_match = "inconclusive"
             self.state.is_relevant = False
@@ -83,6 +92,14 @@ class EditalAnalysisFlow(Flow[EditalState]):
             self.state.has_error = True
             self.state.error_message = str(e)
             self.state.justification = e.error_message
+            self.state.target_match = False
+            self.state.threshold_match = "inconclusive"
+            self.state.is_relevant = False
+            return self.state
+        except InsufficientContentError as e:
+            self.state.has_error = True
+            self.state.error_message = str(e)
+            self.state.justification = f"Não foi possível analisar o edital: {e.error_message}. É necessário ter arquivos de conteúdo (PDF, DOCX, etc.) além do metadata.json para realizar a análise."
             self.state.target_match = False
             self.state.threshold_match = "inconclusive"
             self.state.is_relevant = False
