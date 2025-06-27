@@ -87,6 +87,20 @@ class EditalAnalysisFlow(Flow[EditalState]):
         try:
             # Usa o FileReadTool para ler todos os arquivos do diretório
             content = self.file_tool._run(self.state.edital_path_dir)
+            # NOVO: Se o conteúdo for vazio ou só erro, aborta o fluxo
+            if not content or content.strip().startswith("Error") or not content.strip():
+                self.state.has_error = True
+                self.state.error_message = "Nenhum conteúdo extraído dos arquivos do edital."
+                self.state.justification = (
+                    "Não foi possível analisar o edital devido à ausência de conteúdo nos arquivos. "
+                    "Verifique se os arquivos estão corrompidos, vazios ou ilegíveis."
+                )
+                self.state.target_match = False
+                self.state.threshold_match = "inconclusive"
+                self.state.is_relevant = False
+                self.state.executive_summary = "Não foi possível gerar resumo: nenhum conteúdo extraído."
+                self.state.technical_summary = "Não foi possível gerar resumo técnico: nenhum conteúdo extraído."
+                return self.state
             self.state.content = content
         except DocumentTooLargeError as e:
             self.state.has_error = True
@@ -209,12 +223,17 @@ class EditalAnalysisFlow(Flow[EditalState]):
         self.state.city = cleaned_data.get("city", "Não foi possível determinar")
         self.state.opening_date = cleaned_data.get("opening_date", "")
         
+        # Corrige o campo title se vier igual ao target
+        title = cleaned_data.get("title", "")
+        if title.strip().lower() == self.target.strip().lower():
+            title = "Não disponível"
+        
         # Atualiza o metadata com as informações de contato e outras informações
         self.state.metadata.update({
             "phone": cleaned_data.get("phone", ""),
             "website": cleaned_data.get("website", ""),
             "email": cleaned_data.get("email", ""),
-            "title": cleaned_data.get("title", ""),
+            "title": title,
             "object": cleaned_data.get("object", ""),
             "quantities": cleaned_data.get("quantities", ""),
             "specifications": cleaned_data.get("specifications", ""),
