@@ -15,6 +15,21 @@ from utils import get_logger
 
 logger = get_logger(__name__)
 
+"""
+FileReadTool - Ferramenta para leitura de arquivos de editais
+
+Suporte a arquivos compactados:
+- ZIPs aninhados (até 3 níveis de profundidade)
+- Detecção automática de arquivos compactados
+- Processamento recursivo seguro com limite de profundidade
+- Limpeza automática de diretórios temporários
+
+Formatos suportados:
+- PDF, DOCX, TXT, MD, CSV, JSON
+- ZIP (com suporte a aninhamento)
+- Outros formatos compactados detectados mas não processados recursivamente
+"""
+
 def clean_text(text: str) -> str:
     """Limpa e otimiza o texto removendo espaços desnecessários e caracteres especiais."""
     if not text:
@@ -70,11 +85,11 @@ class FileReadTool(BaseTool):
     name: str = "File Reader"
     description: str = (
         "Reads the content of all files in an edital directory and returns it as text. "
-        "Supports TXT, PDF, DOCX, MD, CSV, JSON files and ZIP archives."
+        "Supports TXT, PDF, DOCX, MD, CSV, JSON files and ZIP archives (including nested ZIPs up to 3 levels deep)."
     )
     args_schema: Type[BaseModel] = FileReadToolInput
 
-    def _run(self, edital_path_dir: str, max_chars: int = 100000) -> str:
+    def _run(self, edital_path_dir: str, max_chars: int = 200000) -> str:
         """Read all files in the edital directory and return their content as text."""
         try:
             print(f"\n{'='*50}")
@@ -220,31 +235,74 @@ class FileReadTool(BaseTool):
             elif file_extension == ".json":
                 return self._extract_text_from_json(file_path)
             else:  # Assume it's a text file
-                with open(file_path, "r", encoding="utf-8", errors="replace") as file:
-                    return file.read()
+                return self._extract_text_from_text_file(file_path)
 
         except Exception as e:
+            return f"Error: Failed to extract text from file: {str(e)}"
+
+    def _extract_text_from_text_file(self, file_path: str) -> str:
+        """Extract text from a text file with multiple encoding support."""
+        try:
+            print(f"FileReadTool: Extraindo texto do arquivo de texto: {file_path}")
+            
+            # Lista de encodings para tentar (incluindo UTF-8 com BOM)
+            encodings = ['utf-8-sig', 'utf-8', 'latin1', 'cp1252', 'iso-8859-1']
+            
+            for encoding in encodings:
+                try:
+                    with open(file_path, "r", encoding=encoding) as file:
+                        text = file.read()
+                    
+                    if not text.strip():
+                        print(f"FileReadTool: Nenhum texto extraído do arquivo com encoding {encoding}")
+                        continue
+                    
+                    print(f"FileReadTool: Texto extraído com sucesso do arquivo usando encoding {encoding}. Tamanho: {len(text)} caracteres")
+                    return text
+                    
+                except (UnicodeDecodeError, Exception) as e:
+                    print(f"FileReadTool: Erro ao ler arquivo com encoding {encoding}: {str(e)}")
+                    continue
+            
+            print("FileReadTool: Não foi possível ler o arquivo com nenhum encoding")
+            return "Error: Failed to extract text from file: Could not decode with any encoding"
+            
+        except Exception as e:
+            print(f"FileReadTool: Erro ao extrair texto do arquivo: {str(e)}")
             return f"Error: Failed to extract text from file: {str(e)}"
 
     def _extract_text_from_csv(self, file_path: str) -> str:
         """Extract text from CSV file."""
         try:
             print(f"FileReadTool: Extraindo texto do CSV: {file_path}")
-            text = []
             
-            with open(file_path, "r", encoding="utf-8", errors="replace") as file:
-                csv_reader = csv.reader(file)
-                for row in csv_reader:
-                    if any(cell.strip() for cell in row):  # Ignora linhas vazias
-                        text.append(" | ".join(cell.strip() for cell in row))
+            # Lista de encodings para tentar (incluindo UTF-8 com BOM)
+            encodings = ['utf-8-sig', 'utf-8', 'latin1', 'cp1252', 'iso-8859-1']
             
-            if not text:
-                print("FileReadTool: Nenhum texto extraído do CSV")
-                return "Error: No text extracted from CSV"
+            for encoding in encodings:
+                try:
+                    text = []
+                    
+                    with open(file_path, "r", encoding=encoding) as file:
+                        csv_reader = csv.reader(file)
+                        for row in csv_reader:
+                            if any(cell.strip() for cell in row):  # Ignora linhas vazias
+                                text.append(" | ".join(cell.strip() for cell in row))
+                    
+                    if not text:
+                        print(f"FileReadTool: Nenhum texto extraído do CSV com encoding {encoding}")
+                        continue
+                    
+                    result = "\n".join(text)
+                    print(f"FileReadTool: Texto extraído com sucesso do CSV usando encoding {encoding}. Tamanho: {len(result)} caracteres")
+                    return result
+                    
+                except (UnicodeDecodeError, Exception) as e:
+                    print(f"FileReadTool: Erro ao ler CSV com encoding {encoding}: {str(e)}")
+                    continue
             
-            result = "\n".join(text)
-            print(f"FileReadTool: Texto extraído com sucesso do CSV. Tamanho: {len(result)} caracteres")
-            return result
+            print("FileReadTool: Não foi possível ler o CSV com nenhum encoding")
+            return "Error: Failed to extract text from CSV: Could not decode with any encoding"
             
         except Exception as e:
             print(f"FileReadTool: Erro ao extrair texto do CSV: {str(e)}")
@@ -255,35 +313,47 @@ class FileReadTool(BaseTool):
         try:
             print(f"FileReadTool: Extraindo texto do JSON: {file_path}")
             
-            with open(file_path, "r", encoding="utf-8", errors="replace") as file:
-                data = json.load(file)
+            # Lista de encodings para tentar (incluindo UTF-8 com BOM)
+            encodings = ['utf-8-sig', 'utf-8', 'latin1', 'cp1252', 'iso-8859-1']
             
-            # Remove campos específicos se for metadata.json
-            file_name = os.path.basename(file_path).lower()
-            if file_name == "metadata.json":
-                # Remove campos que não devem ser incluídos na análise
-                if "threshold" in data:
-                    del data["threshold"]
-                    print(f"FileReadTool: Campo 'threshold' removido do metadata.json")
-                if "target" in data:
-                    del data["target"]
-                    print(f"FileReadTool: Campo 'target' removido do metadata.json")
+            for encoding in encodings:
+                try:
+                    with open(file_path, "r", encoding=encoding) as file:
+                        data = json.load(file)
+                    
+                    # Remove campos específicos se for metadata.json
+                    file_name = os.path.basename(file_path).lower()
+                    if file_name == "metadata.json":
+                        # Remove campos que não devem ser incluídos na análise
+                        if "threshold" in data:
+                            del data["threshold"]
+                            print(f"FileReadTool: Campo 'threshold' removido do metadata.json")
+                        if "target" in data:
+                            del data["target"]
+                            print(f"FileReadTool: Campo 'target' removido do metadata.json")
+                    
+                    # Converte o JSON em texto formatado
+                    text = json.dumps(data, ensure_ascii=False, indent=2)
+                    
+                    # Para metadata.json, retorna o conteúdo mesmo que esteja vazio
+                    if file_name == "metadata.json":
+                        print(f"FileReadTool: Metadata.json processado com sucesso usando encoding {encoding}. Tamanho: {len(text)} caracteres")
+                        return text
+                    
+                    # Para outros arquivos JSON, verifica se há conteúdo
+                    if not text.strip():
+                        print(f"FileReadTool: Nenhum texto extraído do JSON com encoding {encoding}")
+                        continue
+                    
+                    print(f"FileReadTool: Texto extraído com sucesso do JSON usando encoding {encoding}. Tamanho: {len(text)} caracteres")
+                    return text
+                    
+                except (UnicodeDecodeError, json.JSONDecodeError) as e:
+                    print(f"FileReadTool: Erro ao ler com encoding {encoding}: {str(e)}")
+                    continue
             
-            # Converte o JSON em texto formatado
-            text = json.dumps(data, ensure_ascii=False, indent=2)
-            
-            # Para metadata.json, retorna o conteúdo mesmo que esteja vazio
-            if file_name == "metadata.json":
-                print(f"FileReadTool: Metadata.json processado com sucesso. Tamanho: {len(text)} caracteres")
-                return text
-            
-            # Para outros arquivos JSON, verifica se há conteúdo
-            if not text.strip():
-                print("FileReadTool: Nenhum texto extraído do JSON")
-                return "Error: No text extracted from JSON"
-            
-            print(f"FileReadTool: Texto extraído com sucesso do JSON. Tamanho: {len(text)} caracteres")
-            return text
+            print("FileReadTool: Não foi possível ler o JSON com nenhum encoding")
+            return "Error: Failed to extract text from JSON: Could not decode with any encoding"
             
         except Exception as e:
             print(f"FileReadTool: Erro ao extrair texto do JSON: {str(e)}")
@@ -376,7 +446,7 @@ class FileReadTool(BaseTool):
     def _extract_text_from_docx(self, file_path: str) -> str:
         """Extract text from DOCX file."""
         try:
-            logger.info(f"Extraindo texto do DOCX: {file_path}")
+            print(f"FileReadTool: Extraindo texto do DOCX: {file_path}")
             text = ""
             
             doc = docx.Document(file_path)
@@ -397,41 +467,58 @@ class FileReadTool(BaseTool):
                         text += " | ".join(row_text) + "\n"
             
             if not text.strip():
-                logger.error("Nenhum texto extraído do DOCX")
+                print("FileReadTool: Nenhum texto extraído do DOCX")
                 return "Error: No text extracted from DOCX"
             
-            logger.info(f"Texto extraído com sucesso do DOCX. Tamanho: {len(text)} caracteres")
+            print(f"FileReadTool: Texto extraído com sucesso do DOCX. Tamanho: {len(text)} caracteres")
             return text
             
         except Exception as e:
-            logger.error(f"Erro ao extrair texto do DOCX: {str(e)}")
+            print(f"FileReadTool: Erro ao extrair texto do DOCX: {str(e)}")
             return f"Error: Failed to extract text from DOCX: {str(e)}"
 
     def _extract_text_from_markdown(self, file_path: str) -> str:
         """Extract text from Markdown file."""
         try:
-            logger.info(f"Extraindo texto do Markdown: {file_path}")
+            print(f"FileReadTool: Extraindo texto do Markdown: {file_path}")
             
-            with open(file_path, "r", encoding="utf-8", errors="replace") as file:
-                text = file.read()
+            # Lista de encodings para tentar (incluindo UTF-8 com BOM)
+            encodings = ['utf-8-sig', 'utf-8', 'latin1', 'cp1252', 'iso-8859-1']
             
-            if not text.strip():
-                logger.error("Nenhum texto extraído do Markdown")
-                return "Error: No text extracted from Markdown"
+            for encoding in encodings:
+                try:
+                    with open(file_path, "r", encoding=encoding) as file:
+                        text = file.read()
+                    
+                    if not text.strip():
+                        print(f"FileReadTool: Nenhum texto extraído do Markdown com encoding {encoding}")
+                        continue
+                    
+                    print(f"FileReadTool: Texto extraído com sucesso do Markdown usando encoding {encoding}. Tamanho: {len(text)} caracteres")
+                    return text
+                    
+                except (UnicodeDecodeError, Exception) as e:
+                    print(f"FileReadTool: Erro ao ler Markdown com encoding {encoding}: {str(e)}")
+                    continue
             
-            logger.info(f"Texto extraído com sucesso do Markdown. Tamanho: {len(text)} caracteres")
-            return text
+            print("FileReadTool: Não foi possível ler o Markdown com nenhum encoding")
+            return "Error: Failed to extract text from Markdown: Could not decode with any encoding"
             
         except Exception as e:
-            logger.error(f"Erro ao extrair texto do Markdown: {str(e)}")
+            print(f"FileReadTool: Erro ao extrair texto do Markdown: {str(e)}")
             return f"Error: Failed to extract text from Markdown: {str(e)}"
 
-    def _extract_text_from_zip(self, file_path: str, max_chars: int) -> str:
-        """Extract text from ZIP file."""
+    def _extract_text_from_zip(self, file_path: str, max_chars: int, max_depth: int = 3, current_depth: int = 0) -> str:
+        """Extract text from ZIP file with support for nested ZIPs."""
         try:
-            print(f"FileReadTool: Extraindo texto do ZIP: {file_path}")
+            print(f"FileReadTool: Extraindo texto do ZIP (nível {current_depth + 1}): {file_path}")
             text = ""
             temp_dir = None
+            
+            # Verifica profundidade máxima para evitar loops infinitos
+            if current_depth >= max_depth:
+                print(f"FileReadTool: Profundidade máxima atingida ({max_depth}). Parando recursão.")
+                return f"Error: Maximum ZIP depth reached ({max_depth}). Stopping recursion."
             
             try:
                 # Verifica se o arquivo ZIP existe
@@ -452,20 +539,40 @@ class FileReadTool(BaseTool):
                 with zipfile.ZipFile(file_path, 'r') as zip_ref:
                     # Lista arquivos no ZIP
                     file_list = zip_ref.namelist()
-                    print(f"FileReadTool: Arquivos no ZIP: {file_list}")
+                    print(f"FileReadTool: Arquivos no ZIP (nível {current_depth + 1}): {file_list}")
                     
                     zip_ref.extractall(temp_dir)
-                print("FileReadTool: Arquivo ZIP extraído com sucesso")
+                print(f"FileReadTool: Arquivo ZIP extraído com sucesso (nível {current_depth + 1})")
                 
                 # Processa arquivos extraídos
                 processed_files = 0
+                nested_zips = []
+                
                 for root, _, files in os.walk(temp_dir):
                     for file in files:
                         file_path_extracted = os.path.join(root, file)
                         print(f"FileReadTool: Processando arquivo extraído: {file}")
                         
                         try:
-                            # Tenta extrair texto usando o método correto
+                            # Verifica se é um arquivo compactado aninhado
+                            if is_compressed_file(file_path_extracted):
+                                compressed_type = get_compressed_file_type(file_path_extracted)
+                                print(f"FileReadTool: Arquivo compactado aninhado encontrado ({compressed_type}): {file}")
+                                
+                                # Por enquanto, só processa ZIPs aninhados
+                                if compressed_type == 'zip':
+                                    nested_zips.append(file_path_extracted)
+                                else:
+                                    print(f"FileReadTool: Tipo de arquivo compactado não suportado: {compressed_type}")
+                                    # Tenta extrair como arquivo normal (pode ser um arquivo de texto com extensão .zip)
+                                    file_text = self._extract_text_from_file(file_path_extracted)
+                                    if file_text and not file_text.startswith("Error:"):
+                                        text += f"\n\n=== {file} ===\n\n{file_text}"
+                                        print(f"FileReadTool: Texto extraído do arquivo {file}: {len(file_text)} caracteres")
+                                        processed_files += 1
+                                continue
+                            
+                            # Para outros tipos de arquivo, extrai texto normalmente
                             file_text = self._extract_text_from_file(file_path_extracted)
                             
                             if file_text and not file_text.startswith("Error:"):
@@ -479,17 +586,42 @@ class FileReadTool(BaseTool):
                             print(f"FileReadTool: Erro ao processar arquivo {file}: {str(e)}")
                             continue
                 
-                print(f"FileReadTool: Total de arquivos processados: {processed_files}")
+                # Processa ZIPs aninhados recursivamente
+                if nested_zips:
+                    print(f"FileReadTool: Processando {len(nested_zips)} ZIP(s) aninhado(s)...")
+                    for nested_zip_path in nested_zips:
+                        try:
+                            nested_text = self._extract_text_from_zip(
+                                nested_zip_path, 
+                                max_chars, 
+                                max_depth, 
+                                current_depth + 1
+                            )
+                            
+                            if nested_text and not nested_text.startswith("Error:"):
+                                nested_file_name = os.path.basename(nested_zip_path)
+                                text += f"\n\n=== ZIP ANINHADO: {nested_file_name} ===\n\n{nested_text}"
+                                print(f"FileReadTool: Texto extraído do ZIP aninhado {nested_file_name}: {len(nested_text)} caracteres")
+                                processed_files += 1
+                            else:
+                                print(f"FileReadTool: Erro ao extrair texto do ZIP aninhado: {nested_text}")
+                                
+                        except Exception as e:
+                            print(f"FileReadTool: Erro ao processar ZIP aninhado {nested_zip_path}: {str(e)}")
+                            continue
+                
+                print(f"FileReadTool: Total de arquivos processados (nível {current_depth + 1}): {processed_files}")
                 
                 if not text.strip():
-                    print("FileReadTool: Nenhum texto extraído do ZIP")
+                    print(f"FileReadTool: Nenhum texto extraído do ZIP (nível {current_depth + 1})")
                     return "Error: No text extracted from ZIP"
                 
                 # Limita tamanho do texto
                 if len(text) > max_chars:
                     text = text[:max_chars] + f"\n\n[Texto truncado em {max_chars} caracteres]"
                 
-                print(f"FileReadTool: Texto extraído com sucesso do ZIP. Tamanho: {len(text)} caracteres")
+                print(f"FileReadTool: Texto extraído com sucesso do ZIP (nível {current_depth + 1}). Tamanho: {len(text)} caracteres")
+                
                 return text
                 
             finally:
@@ -506,4 +638,30 @@ class FileReadTool(BaseTool):
             return f"Error: Corrupted ZIP file: {str(e)}"
         except Exception as e:
             print(f"FileReadTool: Erro ao extrair texto do ZIP: {str(e)}")
-            return f"Error: Failed to extract text from ZIP: {str(e)}" 
+            return f"Error: Failed to extract text from ZIP: {str(e)}"
+
+def is_compressed_file(file_path: str) -> bool:
+    """Verifica se um arquivo é um arquivo compactado."""
+    file_extension = os.path.splitext(file_path)[1].lower()
+    compressed_extensions = ['.zip', '.rar', '.7z', '.tar.gz', '.tar.bz2', '.gz', '.bz2']
+    return file_extension in compressed_extensions
+
+def get_compressed_file_type(file_path: str) -> str:
+    """Retorna o tipo de arquivo compactado."""
+    file_extension = os.path.splitext(file_path)[1].lower()
+    if file_extension == '.zip':
+        return 'zip'
+    elif file_extension == '.rar':
+        return 'rar'
+    elif file_extension == '.7z':
+        return '7z'
+    elif file_extension in ['.tar.gz', '.tgz']:
+        return 'tar.gz'
+    elif file_extension in ['.tar.bz2', '.tbz2']:
+        return 'tar.bz2'
+    elif file_extension == '.gz':
+        return 'gz'
+    elif file_extension == '.bz2':
+        return 'bz2'
+    else:
+        return 'unknown' 

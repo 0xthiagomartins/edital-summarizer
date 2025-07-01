@@ -154,6 +154,7 @@ class EditalAnalysisFlow(Flow[EditalState]):
                 - Foco comercial e direto
                 - Máximo 150 palavras
                 - Formato Markdown limpo e profissional
+                - NÃO adicione nenhum título como 'Resumo Executivo' ou similar
                 - Incluir:
                   * Cidade/UF
                   * Valor Monetário total estimado (se disponível)
@@ -167,6 +168,7 @@ class EditalAnalysisFlow(Flow[EditalState]):
                 - Detalhado e completo
                 - Máximo 1500 palavras
                 - Formato Markdown estruturado e profissional
+                - NÃO adicione nenhum título como 'Resumo Técnico' ou similar
                 - Incluir:
                   * Informações gerais completas
                   * Especificações técnicas detalhadas
@@ -175,16 +177,17 @@ class EditalAnalysisFlow(Flow[EditalState]):
                   * Requisitos técnicos
                   * Condições comerciais
                   * Contatos completos
-                - Usar títulos em português
+                - Usar títulos em português para as seções internas, mas nunca um título geral como 'Resumo Técnico'
                 - Manter consistência na formatação
                 
                 REGRAS GERAIS:
                 - SEMPRE em português
                 - Formatação Markdown consistente
-                - Títulos com # e ##
+                - Títulos com # e ## apenas para seções internas, nunca para o resumo como um todo
                 - Listas com - e **negrito** para destaque
                 - Informações organizadas em seções claras
                 - Linguagem profissional mas acessível
+                - Nunca adicione um título geral como 'Resumo Técnico' ou 'Resumo Executivo' no início do texto
                 
                 IMPORTANTE: Identifique também:
                 1. A cidade/UF do edital (procure no metadata ou no texto)
@@ -196,10 +199,10 @@ class EditalAnalysisFlow(Flow[EditalState]):
                 4. Outras informações (em formato texto):
                    - title: título do edital
                    - object: objeto da licitação
-                   - quantities: quantidades relevantes (ex: "100 unidades de tablets")
-                   - specifications: especificações técnicas (ex: "Tablets com tela de 10 polegadas")
-                   - deadlines: prazos importantes (ex: "Entrega em 30 dias")
-                   - values: valores relevantes (ex: "Valor total de R$ 500.000,00")
+                   - quantities: quantidades relevantes (ex: '100 unidades de tablets')
+                   - specifications: especificações técnicas (ex: 'Tablets com tela de 10 polegadas')
+                   - deadlines: prazos importantes (ex: 'Entrega em 30 dias')
+                   - values: valores relevantes (ex: 'Valor total de R$ 500.000,00')
                 Se não encontrar alguma informação, use string vazia"""},
                 {"role": "user", "content": f"""
                 Target: {self.target}
